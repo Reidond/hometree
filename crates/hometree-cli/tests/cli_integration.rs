@@ -1,5 +1,5 @@
-use assert_cmd::prelude::*;
 use age::secrecy::ExposeSecret;
+use assert_cmd::prelude::*;
 use hometree_core::read_generations;
 use hometree_core::{config::BackupPolicy, Config};
 use predicates::str::contains;
@@ -109,9 +109,7 @@ fn init_respects_root_overrides() {
         .assert()
         .success();
 
-    assert!(override_xdg
-        .join("config/hometree/config.toml")
-        .exists());
+    assert!(override_xdg.join("config/hometree/config.toml").exists());
     assert!(override_xdg.join("data/hometree/repo.git").exists());
     assert!(override_xdg.join("state/hometree").exists());
 }

@@ -39,9 +39,9 @@ impl AgeBackend {
                 if trimmed.is_empty() || trimmed.starts_with('#') {
                     continue;
                 }
-                let parsed = trimmed
-                    .parse::<age::x25519::Identity>()
-                    .map_err(|_| HometreeError::Config(format!("invalid age identity: {path:?}")))?;
+                let parsed = trimmed.parse::<age::x25519::Identity>().map_err(|_| {
+                    HometreeError::Config(format!("invalid age identity: {path:?}"))
+                })?;
                 identities.push(parsed);
             }
         }

@@ -116,13 +116,7 @@ pub fn collect_watch_decisions(
     let mut decisions = WatchDecisions::default();
 
     for rel_path in rel_paths {
-        match decide_watch_action(
-            managed,
-            secrets,
-            allowlist,
-            auto_add_enabled,
-            &rel_path,
-        ) {
+        match decide_watch_action(managed, secrets, allowlist, auto_add_enabled, &rel_path) {
             WatchAction::Ignore => {}
             WatchAction::SecretPlaintext => {
                 decisions.secret_plaintext.insert(rel_path);

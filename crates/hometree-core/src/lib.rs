@@ -6,8 +6,8 @@ pub mod git;
 pub mod inhibit;
 pub mod lock;
 pub mod managed_set;
-pub mod plan;
 pub mod paths;
+pub mod plan;
 pub mod secrets;
 pub mod verify;
 
@@ -15,10 +15,12 @@ pub use config::Config;
 pub use deploy::{deploy, deploy_with_options, rollback, DeployOptions};
 pub use error::{HometreeError, Result};
 pub use generations::{append_generation, read_generations, GenerationEntry};
-pub use inhibit::{active_inhibit, clear_inhibit, inhibit_path, read_inhibit, write_inhibit, InhibitMarker};
+pub use inhibit::{
+    active_inhibit, clear_inhibit, inhibit_path, read_inhibit, write_inhibit, InhibitMarker,
+};
 pub use lock::{acquire_lock, lock_path};
 pub use managed_set::ManagedSet;
-pub use plan::{plan_deploy, DeployPlan, PlanAction, PlanEntry};
 pub use paths::Paths;
+pub use plan::{plan_deploy, DeployPlan, PlanAction, PlanEntry};
 pub use secrets::{AgeBackend, SecretsBackend, SecretsManager};
 pub use verify::{verify, VerifyOptions, VerifyReport};

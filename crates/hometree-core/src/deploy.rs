@@ -14,9 +14,9 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use walkdir::WalkDir;
 
 use crate::error::Result;
-use crate::lock::acquire_lock;
 use crate::generations::{append_generation, GenerationEntry};
 use crate::git::{GitBackend, TreeEntry};
+use crate::lock::acquire_lock;
 use crate::secrets::{AgeBackend, SecretsBackend, SecretsManager};
 use crate::{Config, ManagedSet, Paths};
 
@@ -44,7 +44,11 @@ pub fn deploy_with_options(
     let _lock = acquire_lock(paths)?;
     let managed = ManagedSet::from_config(config)?;
     let secrets = SecretsManager::from_config(&config.secrets);
-    let secrets_ref = if secrets.enabled() { Some(&secrets) } else { None };
+    let secrets_ref = if secrets.enabled() {
+        Some(&secrets)
+    } else {
+        None
+    };
     let secrets_backend = if secrets.enabled() {
         Some(AgeBackend::from_config(&config.secrets)?)
     } else {
@@ -275,9 +279,8 @@ fn backup_secrets(
                 let _ = fs::copy(&plaintext_abs, &dest);
             }
             crate::config::BackupPolicy::Encrypt => {
-                let backend = backend.ok_or_else(|| {
-                    std::io::Error::other("secrets backend missing for backup")
-                })?;
+                let backend = backend
+                    .ok_or_else(|| std::io::Error::other("secrets backend missing for backup"))?;
                 let plaintext = fs::read(&plaintext_abs)?;
                 let ciphertext = backend.encrypt(&plaintext)?;
                 let ciphertext_rel = secrets.ciphertext_path(rule);
@@ -318,9 +321,10 @@ fn apply_secrets(
         }
         if let Ok(meta) = fs::symlink_metadata(&dest) {
             if meta.is_dir() {
-                return Err(
-                    std::io::Error::other("refusing to replace directory with secret file").into(),
-                );
+                return Err(std::io::Error::other(
+                    "refusing to replace directory with secret file",
+                )
+                .into());
             }
             if meta.file_type().is_symlink() {
                 fs::remove_file(&dest)?;

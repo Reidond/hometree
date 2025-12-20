@@ -24,10 +24,7 @@ impl InhibitMarker {
         let expires_at = OffsetDateTime::from(expires)
             .format(&Rfc3339)
             .map_err(|err| HometreeError::Config(format!("invalid timestamp: {err}")))?;
-        let epoch = now
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let epoch = now.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
         Ok(Self {
             reason: reason.into(),
             pid: std::process::id(),

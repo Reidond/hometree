@@ -19,10 +19,7 @@ impl Paths {
         Self::new_with_overrides(None, None)
     }
 
-    pub fn new_with_overrides(
-        home_root: Option<&Path>,
-        xdg_root: Option<&Path>,
-    ) -> Result<Self> {
+    pub fn new_with_overrides(home_root: Option<&Path>, xdg_root: Option<&Path>) -> Result<Self> {
         let base = BaseDirs::new();
         let home_dir = match home_root {
             Some(root) => root.to_path_buf(),

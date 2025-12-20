@@ -15,8 +15,8 @@ use hometree_cli::watch::{
 };
 use hometree_core::git::{AddMode, GitBackend, GitCliBackend};
 use hometree_core::{
-    active_inhibit, clear_inhibit, lock_path, write_inhibit, AgeBackend, InhibitMarker,
-    ManagedSet, Paths, SecretsBackend, SecretsManager,
+    active_inhibit, clear_inhibit, lock_path, write_inhibit, AgeBackend, InhibitMarker, ManagedSet,
+    Paths, SecretsBackend, SecretsManager,
 };
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -41,7 +41,11 @@ pub fn run_daemon_command(
     if foreground {
         match cmd {
             DaemonCommand::Run { .. } | DaemonCommand::Foreground => {}
-            _ => return Err(anyhow!("--foreground cannot be combined with this subcommand")),
+            _ => {
+                return Err(anyhow!(
+                    "--foreground cannot be combined with this subcommand"
+                ))
+            }
         }
     }
 
@@ -246,7 +250,12 @@ fn run_daemon_foreground(overrides: &Overrides, _foreground: bool) -> Result<()>
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
 
-        update_queue_size(&shared, debouncer.len(), secrets_debouncer.len(), auto_add_queue.len());
+        update_queue_size(
+            &shared,
+            debouncer.len(),
+            secrets_debouncer.len(),
+            auto_add_queue.len(),
+        );
 
         let now = Instant::now();
         if now.duration_since(last_inhibit_check) >= Duration::from_secs(1) {
@@ -490,10 +499,7 @@ fn requeue(
 
 fn normalize_rel_path(home_dir: &Path, abs: &Path) -> Option<PathBuf> {
     let rel = abs.strip_prefix(home_dir).ok()?.to_path_buf();
-    if rel
-        .components()
-        .any(|c| matches!(c, Component::ParentDir))
-    {
+    if rel.components().any(|c| matches!(c, Component::ParentDir)) {
         return None;
     }
     Some(rel)
@@ -605,12 +611,22 @@ fn handle_ipc_connection(
                 Err(err) => IpcResponse::err(err.to_string()),
             }
         }
-        "resume" => ipc_control_simple(control_tx, ControlMessage::Resume { respond: None }, "resume"),
+        "resume" => ipc_control_simple(
+            control_tx,
+            ControlMessage::Resume { respond: None },
+            "resume",
+        ),
         "flush" => ipc_control_simple(control_tx, ControlMessage::Flush { respond: None }, "flush"),
-        "reload" => ipc_control_simple(control_tx, ControlMessage::Reload { respond: None }, "reload"),
-        "shutdown" => {
-            ipc_control_simple(control_tx, ControlMessage::Shutdown { respond: None }, "shutdown")
-        }
+        "reload" => ipc_control_simple(
+            control_tx,
+            ControlMessage::Reload { respond: None },
+            "reload",
+        ),
+        "shutdown" => ipc_control_simple(
+            control_tx,
+            ControlMessage::Shutdown { respond: None },
+            "shutdown",
+        ),
         other => IpcResponse::err(format!("unknown command: {other}")),
     };
     let mut writer = BufWriter::new(stream);
@@ -656,7 +672,10 @@ fn install_sighup_handler(control_tx: mpsc::Sender<ControlMessage>) -> Result<()
 fn setup_watcher(
     paths: &Paths,
     watch_roots: &[PathBuf],
-) -> Result<(notify::RecommendedWatcher, mpsc::Receiver<notify::Result<notify::Event>>)> {
+) -> Result<(
+    notify::RecommendedWatcher,
+    mpsc::Receiver<notify::Result<notify::Event>>,
+)> {
     let (tx, rx) = mpsc::channel();
     let mut watcher = notify::recommended_watcher(tx)?;
     for path in watch_roots {
@@ -666,7 +685,12 @@ fn setup_watcher(
     Ok((watcher, rx))
 }
 
-fn update_queue_size(shared: &Arc<Mutex<DaemonShared>>, managed: usize, secrets: usize, auto_add: usize) {
+fn update_queue_size(
+    shared: &Arc<Mutex<DaemonShared>>,
+    managed: usize,
+    secrets: usize,
+    auto_add: usize,
+) {
     if let Ok(mut shared) = shared.lock() {
         shared.queue_size = managed + secrets + auto_add;
     }
@@ -705,9 +729,7 @@ fn write_last_error(paths: &Paths, message: &Option<String>, ts: Option<SystemTi
     let Some(message) = message.as_ref() else {
         return Ok(());
     };
-    let timestamp = ts
-        .map(format_time)
-        .unwrap_or_else(|| "unknown".to_string());
+    let timestamp = ts.map(format_time).unwrap_or_else(|| "unknown".to_string());
     let payload = LastError {
         message: message.clone(),
         timestamp,
@@ -740,7 +762,9 @@ fn ipc_command(
     if resp.ok {
         Ok(())
     } else {
-        Err(anyhow!(resp.error.unwrap_or_else(|| "unknown error".to_string())))
+        Err(anyhow!(resp
+            .error
+            .unwrap_or_else(|| "unknown error".to_string())))
     }
 }
 
@@ -760,7 +784,9 @@ fn ipc_status(paths: &Paths) -> Result<DaemonStatus> {
         let status: DaemonStatus = serde_json::from_value(value)?;
         Ok(status)
     } else {
-        Err(anyhow!(resp.error.unwrap_or_else(|| "unknown error".to_string())))
+        Err(anyhow!(resp
+            .error
+            .unwrap_or_else(|| "unknown error".to_string())))
     }
 }
 
@@ -1071,7 +1097,6 @@ enum ControlMessage {
         respond: Option<mpsc::Sender<Result<()>>>,
     },
 }
-
 
 struct Backoff {
     current: Duration,

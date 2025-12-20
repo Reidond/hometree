@@ -64,7 +64,11 @@ pub fn verify(
     let managed = ManagedSet::from_config(config)?;
     let resolved = git.rev_parse(&config.repo.git_dir, &config.repo.work_tree, rev)?;
     let secrets = SecretsManager::from_config(&config.secrets);
-    let secrets_ref = if secrets.enabled() { Some(&secrets) } else { None };
+    let secrets_ref = if secrets.enabled() {
+        Some(&secrets)
+    } else {
+        None
+    };
     let target_entries = collect_target_paths(
         &managed,
         secrets_ref,

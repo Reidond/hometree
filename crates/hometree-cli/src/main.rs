@@ -488,21 +488,14 @@ fn guard_snapshot_secrets(config: &Config, git: &GitCliBackend) -> Result<()> {
         .map(|rule| PathBuf::from(&rule.path))
         .collect();
     let statuses = git
-        .status_porcelain(
-            &config.repo.git_dir,
-            &config.repo.work_tree,
-            &paths,
-            true,
-        )
+        .status_porcelain(&config.repo.git_dir, &config.repo.work_tree, &paths, true)
         .context("git status")?;
     for status in statuses {
         let rel = Path::new(&status.path);
         if secrets.is_secret_plaintext(rel) {
             let idx = status.index_status;
             if idx != '.' && idx != '?' && idx != '!' {
-                return Err(anyhow!(
-                    "plaintext secret is staged; refuse snapshot"
-                ));
+                return Err(anyhow!("plaintext secret is staged; refuse snapshot"));
             }
         }
     }
@@ -730,8 +723,7 @@ fn run_secret_add(overrides: &Overrides, path: PathBuf) -> Result<()> {
     let secrets = SecretsManager::from_config(&config.secrets);
     let backend = AgeBackend::from_config(&config.secrets)?;
     let plaintext_abs = paths.home_dir().join(&rel);
-    let plaintext = std::fs::read(&plaintext_abs)
-        .context("read secret plaintext")?;
+    let plaintext = std::fs::read(&plaintext_abs).context("read secret plaintext")?;
     let ciphertext = backend.encrypt(&plaintext)?;
     let ciphertext_rel = secrets.ciphertext_path(
         secrets
@@ -973,7 +965,7 @@ fn ensure_git_excludes(paths: &Paths, config: &Config) -> Result<()> {
     }
 
     let mut output = String::new();
-    output.push_str("# hometree secrets (plaintext)") ;
+    output.push_str("# hometree secrets (plaintext)");
     output.push('\n');
     for line in existing {
         output.push_str(&line);
@@ -1008,7 +1000,6 @@ fn status_paths(config: &Config) -> Vec<PathBuf> {
     }
     set.into_iter().map(PathBuf::from).collect()
 }
-
 
 fn resolve_rel_path(home_dir: &Path, input: &Path) -> Result<PathBuf> {
     let abs = if input.is_absolute() {
@@ -1052,7 +1043,6 @@ fn git_rm_cached(git_dir: &Path, work_tree: &Path, paths: &[PathBuf]) -> Result<
     }
     Ok(())
 }
-
 
 fn init_bare_repo(path: &Path) -> Result<()> {
     let status = Command::new("git")

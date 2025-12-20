@@ -37,7 +37,11 @@ pub fn plan_deploy(
 ) -> Result<DeployPlan> {
     let managed = ManagedSet::from_config(config)?;
     let secrets = SecretsManager::from_config(&config.secrets);
-    let secrets_ref = if secrets.enabled() { Some(&secrets) } else { None };
+    let secrets_ref = if secrets.enabled() {
+        Some(&secrets)
+    } else {
+        None
+    };
     let resolved = git.rev_parse(&config.repo.git_dir, &config.repo.work_tree, rev)?;
 
     let target_entries = collect_target_paths(
