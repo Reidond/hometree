@@ -1,0 +1,25 @@
+[package]
+name = "hometree-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "hometree"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+hometree-core = { path = "../hometree-core" }
+globset = "0.4"
+notify = "6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lib]
+path = "src/lib.rs"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"

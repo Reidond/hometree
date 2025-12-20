@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/hometree-core", "crates/hometree-cli"]
+resolver = "2"
