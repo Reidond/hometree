@@ -11,6 +11,7 @@ pub struct Paths {
     data_dir: PathBuf,
     state_dir: PathBuf,
     cache_dir: PathBuf,
+    runtime_dir: Option<PathBuf>,
 }
 
 impl Paths {
@@ -56,12 +57,18 @@ impl Paths {
             )
         };
 
+        let runtime_dir = std::env::var_os("HOMETREE_RUNTIME_DIR")
+            .or_else(|| std::env::var_os("XDG_RUNTIME_DIR"))
+            .map(PathBuf::from)
+            .map(|base| base.join("hometree"));
+
         Ok(Self {
             home_dir,
             config_dir,
             data_dir,
             state_dir,
             cache_dir,
+            runtime_dir,
         })
     }
 
@@ -90,6 +97,10 @@ impl Paths {
 
     pub fn cache_dir(&self) -> &Path {
         &self.cache_dir
+    }
+
+    pub fn runtime_dir(&self) -> Option<&Path> {
+        self.runtime_dir.as_deref()
     }
 
     pub fn config_file(&self) -> PathBuf {

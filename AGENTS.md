@@ -4,7 +4,7 @@ Short, practical guidance for agents working on this repo.
 
 ## Repo layout
 - `crates/hometree-core/`: core logic (config, paths, managed set, git backend, deploy/rollback)
-- `crates/hometree-cli/`: CLI commands, watcher, systemd integration
+- `crates/hometree-cli/`: CLI commands, daemon (watcher), systemd integration
 - Workspace root `Cargo.toml` lists both crates.
 
 ## Build & test
@@ -38,8 +38,8 @@ cargo clippy --workspace -- -D warnings
 ```
 
 ## Safety/behavior guardrails
-- **No full-home scans**: status/watch must remain scoped to managed roots/extra files.
-- Watcher is **event-driven** (notify + debounce), not a recursive scanner.
+- **No full-home scans**: status/daemon watch must remain scoped to managed roots/extra files.
+- Daemon watcher is **event-driven** (notify + debounce), not a recursive scanner.
 - Auto-add is allowlist-only and must still honor ignore/denylist rules.
 
 ## Useful entry points

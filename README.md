@@ -94,14 +94,14 @@ hometree secret status --show-paths
 hometree secret rekey
 ```
 
-## Watcher
+## Daemon / Watcher
 
-Foreground watcher (stages tracked changes; optionally auto-adds new files):
+Foreground daemon (stages tracked changes; optionally auto-adds new files):
 
 ```bash
+hometree daemon run --foreground
+# or alias
 hometree watch foreground
-# or legacy form
-hometree watch --foreground
 ```
 
 Auto-add new files (optional, allowlist required):
@@ -119,7 +119,7 @@ Auto-add applies to new files under managed roots/extra_files when the allowlist
 Install the unit:
 
 ```bash
-hometree watch install-systemd
+hometree daemon install-systemd
 ```
 
 Then reload user units:
@@ -131,10 +131,21 @@ systemctl --user daemon-reload
 Start/stop/status:
 
 ```bash
-hometree watch start
-hometree watch stop
-hometree watch status
+hometree daemon start
+hometree daemon stop
+hometree daemon status
 ```
+
+Reload/pause/resume/flush via IPC:
+
+```bash
+hometree daemon reload
+hometree daemon pause --ttl-ms 300000 --reason deploy
+hometree daemon resume
+hometree daemon flush
+```
+
+Deploy/rollback automatically pause the daemon and set an inhibit marker to avoid staging applied changes.
 
 ## Safety Features
 
@@ -164,7 +175,7 @@ hometree includes several safety features to protect your system:
 - Symlinks are preserved as-is (not dereferenced)
 
 ## Limitations (MVP)
-- The systemd unit runs `hometree watch foreground` only.
+- Systemd integration is Linux/user-session only (no DBus API).
 - Auto-add is allowlisted-only; if `auto_add_allow_patterns` is empty, auto-add is disabled.
 - If no generations exist, `rollback` falls back to `HEAD~N`.
 - Owner/group preservation requires appropriate privileges; failures are silent.

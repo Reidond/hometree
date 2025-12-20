@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use filetime::{self, FileTime};
-use fs2::FileExt;
 #[cfg(unix)]
 use std::ffi::CString;
 #[cfg(unix)]
@@ -15,6 +14,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use walkdir::WalkDir;
 
 use crate::error::Result;
+use crate::lock::acquire_lock;
 use crate::generations::{append_generation, GenerationEntry};
 use crate::git::{GitBackend, TreeEntry};
 use crate::secrets::{AgeBackend, SecretsBackend, SecretsManager};
@@ -123,18 +123,6 @@ pub fn rollback(
     rev: &str,
 ) -> Result<GenerationEntry> {
     deploy(config, paths, git, rev)
-}
-
-fn acquire_lock(paths: &Paths) -> Result<std::fs::File> {
-    fs::create_dir_all(paths.state_dir())?;
-    let lock_path = paths.state_dir().join("lock");
-    // Lock file is for locking only; no content needed, so truncate is irrelevant
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(lock_path)?;
-    file.lock_exclusive()?;
-    Ok(file)
 }
 
 fn create_backup_dir(paths: &Paths) -> Result<PathBuf> {

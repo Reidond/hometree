@@ -4,18 +4,18 @@ use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use hometree_cli::debounce::Debounce;
 use hometree_cli::track::decide_track;
+use hometree_cli::watch::root_to_pathspec;
 use hometree_core::git::{AddMode, GitBackend, GitCliBackend};
-use hometree_core::secrets::{add_suffix, AgeBackend, SecretsBackend, SecretsManager};
+use hometree_core::secrets::{AgeBackend, SecretsBackend, SecretsManager};
 use hometree_core::{
     deploy_with_options, plan_deploy, read_generations, rollback, verify, Config, ManagedSet, Paths,
 };
-use notify::{EventKind, RecursiveMode, Watcher};
-use std::sync::mpsc::{self, RecvTimeoutError};
-use std::time::{Duration, Instant};
-use tracing::{debug, info};
+use std::time::Duration;
+use tracing::info;
 use tracing_subscriber::EnvFilter;
+
+mod daemon;
 
 #[derive(Parser)]
 #[command(name = "hometree", version, about = "Manage a versioned home tree")]
@@ -73,11 +73,12 @@ enum Commands {
         #[arg(long)]
         limit: Option<usize>,
     },
-    /// Watch for changes and auto-stage tracked updates
-    Watch {
+    /// Run and manage the daemon (alias: watch)
+    #[command(alias = "watch")]
+    Daemon {
         #[command(subcommand)]
-        command: Option<WatchCommand>,
-        /// Compatibility alias for `watch foreground`
+        command: Option<DaemonCommand>,
+        /// Compatibility alias for `daemon run --foreground`
         #[arg(long)]
         foreground: bool,
     },
@@ -193,10 +194,10 @@ fn main() -> Result<()> {
         Commands::Untrack { paths } => run_untrack(&overrides, paths),
         Commands::Snapshot { message, auto } => run_snapshot(&overrides, message, auto),
         Commands::Log { limit } => run_log(&overrides, limit),
-        Commands::Watch {
+        Commands::Daemon {
             command,
             foreground,
-        } => run_watch(&overrides, command, foreground),
+        } => daemon::run_daemon_command(&overrides, command, foreground),
         Commands::Deploy {
             target,
             no_secrets,
@@ -216,17 +217,43 @@ fn main() -> Result<()> {
 }
 
 #[derive(Subcommand)]
-enum WatchCommand {
-    /// Run in the foreground
+enum DaemonCommand {
+    /// Run the daemon
+    Run {
+        /// Run in the foreground (compat)
+        #[arg(long)]
+        foreground: bool,
+    },
+    /// Compatibility alias for `run --foreground`
+    #[command(alias = "foreground")]
     Foreground,
     /// Install a systemd user unit
     InstallSystemd,
+    /// Uninstall the systemd user unit
+    UninstallSystemd,
     /// Start the systemd user unit
     Start,
     /// Stop the systemd user unit
     Stop,
-    /// Show systemd user unit status
+    /// Restart the systemd user unit
+    Restart,
+    /// Show daemon status
     Status,
+    /// Reload daemon config
+    Reload,
+    /// Pause staging (inhibit)
+    Pause {
+        /// Pause duration in milliseconds
+        #[arg(long, default_value_t = 300_000)]
+        ttl_ms: u64,
+        /// Reason for pausing
+        #[arg(long, default_value = "manual")]
+        reason: String,
+    },
+    /// Resume staging
+    Resume,
+    /// Flush staged changes immediately
+    Flush,
 }
 
 fn init_tracing() {
@@ -362,13 +389,15 @@ fn run_track(
     }
 
     let git = GitCliBackend::new();
-    git.add(
-        &config.repo.git_dir,
-        &config.repo.work_tree,
-        &to_stage,
-        AddMode::Paths,
-    )
-    .context("git add")?;
+    with_lock(&paths_ctx, || {
+        git.add(
+            &config.repo.git_dir,
+            &config.repo.work_tree,
+            &to_stage,
+            AddMode::Paths,
+        )
+        .context("git add")
+    })?;
 
     println!("tracked {} path(s)", to_stage.len());
     Ok(())
@@ -412,8 +441,10 @@ fn run_untrack(overrides: &Overrides, paths: Vec<PathBuf>) -> Result<()> {
     }
 
     if !to_unstage.is_empty() {
-        git_rm_cached(&config.repo.git_dir, &config.repo.work_tree, &to_unstage)
-            .context("git rm --cached")?;
+        with_lock(&paths_ctx, || {
+            git_rm_cached(&config.repo.git_dir, &config.repo.work_tree, &to_unstage)
+                .context("git rm --cached")
+        })?;
     }
 
     println!("untracked {} path(s)", to_unstage.len());
@@ -421,7 +452,8 @@ fn run_untrack(overrides: &Overrides, paths: Vec<PathBuf>) -> Result<()> {
 }
 
 fn run_snapshot(overrides: &Overrides, message: Option<String>, auto: bool) -> Result<()> {
-    let (_paths, config) = load_config(overrides)?;
+    let (paths, config) = load_config(overrides)?;
+    let _inhibit = daemon::DaemonInhibitGuard::new(&paths, "rollback", Duration::from_secs(300))?;
     let git = GitCliBackend::new();
     guard_snapshot_secrets(&config, &git)?;
     let msg = if auto {
@@ -437,9 +469,10 @@ fn run_snapshot(overrides: &Overrides, message: Option<String>, auto: bool) -> R
         message.ok_or_else(|| anyhow!("message is required"))?
     };
 
-    let output = git
-        .commit(&config.repo.git_dir, &config.repo.work_tree, &msg)
-        .context("git commit")?;
+    let output = with_lock(&paths, || {
+        git.commit(&config.repo.git_dir, &config.repo.work_tree, &msg)
+            .context("git commit")
+    })?;
     println!("{output}");
     Ok(())
 }
@@ -486,464 +519,6 @@ fn run_log(overrides: &Overrides, limit: Option<usize>) -> Result<()> {
     Ok(())
 }
 
-fn run_watch(overrides: &Overrides, command: Option<WatchCommand>, foreground: bool) -> Result<()> {
-    if foreground {
-        if command.is_some() {
-            return Err(anyhow!("--foreground cannot be combined with a subcommand"));
-        }
-        return run_watch_foreground(overrides);
-    }
-
-    match command.unwrap_or(WatchCommand::Foreground) {
-        WatchCommand::Foreground => run_watch_foreground(overrides),
-        WatchCommand::InstallSystemd => {
-            let paths = load_paths(overrides).context("resolve XDG paths")?;
-            install_systemd_unit(&paths)
-        }
-        WatchCommand::Start => systemctl_user(&["start", "hometree.service"]),
-        WatchCommand::Stop => systemctl_user(&["stop", "hometree.service"]),
-        WatchCommand::Status => systemctl_user(&["status", "hometree.service"]),
-    }
-}
-
-fn run_watch_foreground(overrides: &Overrides) -> Result<()> {
-    let (paths, config) = load_config(overrides)?;
-    if !config.watch.enabled {
-        return Err(anyhow!("watch is disabled in config"));
-    }
-
-    let managed = ManagedSet::from_config(&config).context("build managed set")?;
-    let watch_paths = watch_paths(&config);
-    if watch_paths.is_empty() {
-        return Err(anyhow!("no managed roots or extra files configured"));
-    }
-
-    let debounce_ms = config.watch.debounce_ms.max(50);
-    let mut debouncer = Debounce::new(Duration::from_millis(debounce_ms));
-    let (tx, rx) = mpsc::channel();
-    let mut watcher = notify::recommended_watcher(tx)?;
-
-    for path in &watch_paths {
-        let abs = paths.home_dir().join(path);
-        watcher.watch(&abs, RecursiveMode::Recursive)?;
-    }
-
-    let git = GitCliBackend::new();
-    let work_tree = &config.repo.work_tree;
-    let git_dir = &config.repo.git_dir;
-    let secrets = SecretsManager::from_config(&config.secrets);
-    let secrets_backend = if secrets.enabled() {
-        Some(AgeBackend::from_config(&config.secrets)?)
-    } else {
-        None
-    };
-    let allowlist_patterns = &config.watch.auto_add_allow_patterns;
-    let allowlist_has_entries = allowlist_patterns.iter().any(|p| !p.trim().is_empty());
-    let allowlist = build_allowlist(allowlist_patterns)?;
-    let auto_add_enabled = config.watch.auto_add_new && allowlist_has_entries;
-
-    let mut secrets_debouncer = Debounce::new(Duration::from_millis(debounce_ms));
-
-    if config.watch.auto_add_new && !allowlist_has_entries {
-        info!("auto_add_new enabled but allowlist is empty; skipping auto-add");
-    }
-
-    loop {
-        match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(Ok(event)) => {
-                if !should_handle_event(&event.kind) {
-                    continue;
-                }
-                for path in event.paths {
-                    if let Ok(rel) = path.strip_prefix(paths.home_dir()) {
-                        let rel_path = rel.to_path_buf();
-                        let decisions = collect_watch_decisions(
-                            &managed,
-                            &secrets,
-                            &allowlist,
-                            auto_add_enabled,
-                            std::iter::once(rel_path),
-                        );
-
-                        for meta in decisions.auto_add_meta {
-                            if auto_add_enabled && !meta.auto_add {
-                                // Log why auto-add was skipped (for troubleshooting)
-                                if !meta.is_allowed {
-                                    debug!(path = %meta.path.display(), "skipped auto-add: path is ignored or denylisted");
-                                } else if !meta.matches_allowlist {
-                                    debug!(path = %meta.path.display(), "skipped auto-add: path does not match allowlist");
-                                }
-                            }
-                        }
-
-                        for rel_path in decisions.auto_add {
-                            match git.add(
-                                git_dir,
-                                work_tree,
-                                std::slice::from_ref(&rel_path),
-                                AddMode::Paths,
-                            ) {
-                                Ok(_) => info!(path = %rel_path.display(), "auto-added new path"),
-                                Err(err) => {
-                                    eprintln!("auto-add failed for {}: {}", rel_path.display(), err)
-                                }
-                            }
-                        }
-
-                        for rel_path in decisions.managed_stage {
-                            debouncer.push(rel_path, Instant::now());
-                        }
-
-                        for rel_path in decisions.secret_plaintext {
-                            secrets_debouncer.push(rel_path, Instant::now());
-                        }
-                    }
-                }
-            }
-            Ok(Err(err)) => {
-                eprintln!("watch error: {err}");
-            }
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => break,
-        }
-
-        if debouncer.is_due(Instant::now()) && !debouncer.is_empty() {
-            let paths_to_stage = debouncer.drain();
-            info!("staging {} changed file(s)", paths_to_stage.len());
-            let _ = git.add(git_dir, work_tree, &paths_to_stage, AddMode::TrackedOnly);
-        }
-
-        if secrets_debouncer.is_due(Instant::now()) && !secrets_debouncer.is_empty() {
-            let plaintext_paths = secrets_debouncer.drain();
-            let backend = match secrets_backend.as_ref() {
-                Some(backend) => backend,
-                None => {
-                    eprintln!("secrets enabled but backend unavailable");
-                    continue;
-                }
-            };
-            let mut ciphertext_paths = Vec::new();
-            for rel in plaintext_paths {
-                let plaintext_abs = paths.home_dir().join(&rel);
-                let plaintext = match std::fs::read(&plaintext_abs) {
-                    Ok(contents) => contents,
-                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                        continue;
-                    }
-                    Err(_) => {
-                        eprintln!("failed to read secret plaintext");
-                        continue;
-                    }
-                };
-                let ciphertext = backend.encrypt(&plaintext)?;
-                let rule = match config
-                    .secrets
-                    .rules
-                    .iter()
-                    .find(|rule| rule.path == rel.to_string_lossy())
-                {
-                    Some(rule) => rule,
-                    None => {
-                        eprintln!("secret rule not found");
-                        continue;
-                    }
-                };
-                let ciphertext_rel = if let Some(ciphertext_path) = &rule.ciphertext {
-                    PathBuf::from(ciphertext_path)
-                } else {
-                    add_suffix(Path::new(&rule.path), &config.secrets.sidecar_suffix)
-                };
-                let ciphertext_abs = paths.home_dir().join(&ciphertext_rel);
-                if let Some(parent) = ciphertext_abs.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                std::fs::write(&ciphertext_abs, ciphertext)?;
-                ciphertext_paths.push(ciphertext_rel);
-            }
-            if !ciphertext_paths.is_empty() {
-                info!("staging {} secret sidecar(s)", ciphertext_paths.len());
-                let _ = git.add(git_dir, work_tree, &ciphertext_paths, AddMode::Paths);
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn install_systemd_unit(paths: &Paths) -> Result<()> {
-    let config_dir = paths.config_home_dir();
-    let unit_dir = config_dir.join("systemd").join("user");
-    std::fs::create_dir_all(&unit_dir).context("create systemd user dir")?;
-
-    let unit_path = unit_dir.join("hometree.service");
-    let unit = format!(
-        "[Unit]\nDescription=hometree watch daemon\n\n[Service]\nExecStart={exe} watch foreground\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n",
-        exe = std::env::current_exe()?.display()
-    );
-    std::fs::write(&unit_path, unit).context("write systemd unit")?;
-
-    println!("installed {}", unit_path.display());
-    println!("run: systemctl --user daemon-reload");
-    Ok(())
-}
-
-fn systemctl_user(args: &[&str]) -> Result<()> {
-    let status = Command::new("systemctl")
-        .arg("--user")
-        .args(args)
-        .status()
-        .context("systemctl --user")?;
-    if !status.success() {
-        return Err(anyhow!("systemctl failed"));
-    }
-    Ok(())
-}
-
-fn should_handle_event(kind: &EventKind) -> bool {
-    matches!(
-        kind,
-        EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) | EventKind::Any
-    )
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WatchAction {
-    Ignore,
-    SecretPlaintext,
-    Managed {
-        auto_add: bool,
-        is_allowed: bool,
-        matches_allowlist: bool,
-    },
-}
-
-#[derive(Debug, Default)]
-struct WatchDecisions {
-    managed_stage: std::collections::BTreeSet<PathBuf>,
-    secret_plaintext: std::collections::BTreeSet<PathBuf>,
-    auto_add: std::collections::BTreeSet<PathBuf>,
-    auto_add_meta: Vec<AutoAddMeta>,
-}
-
-#[derive(Debug, Clone)]
-struct AutoAddMeta {
-    path: PathBuf,
-    auto_add: bool,
-    is_allowed: bool,
-    matches_allowlist: bool,
-}
-
-fn decide_watch_action(
-    managed: &ManagedSet,
-    secrets: &SecretsManager,
-    allowlist: &globset::GlobSet,
-    auto_add_enabled: bool,
-    rel_path: &Path,
-) -> WatchAction {
-    if secrets.is_ciphertext_path(rel_path) {
-        return WatchAction::Ignore;
-    }
-    if secrets.is_secret_plaintext(rel_path) {
-        return WatchAction::SecretPlaintext;
-    }
-    if !managed.is_managed(rel_path) {
-        return WatchAction::Ignore;
-    }
-
-    let is_allowed = managed.is_allowed(rel_path);
-    let matches_allowlist = allowlist.is_match(rel_path);
-    let auto_add = auto_add_enabled && is_allowed && matches_allowlist;
-    WatchAction::Managed {
-        auto_add,
-        is_allowed,
-        matches_allowlist,
-    }
-}
-
-fn collect_watch_decisions(
-    managed: &ManagedSet,
-    secrets: &SecretsManager,
-    allowlist: &globset::GlobSet,
-    auto_add_enabled: bool,
-    rel_paths: impl IntoIterator<Item = PathBuf>,
-) -> WatchDecisions {
-    let mut decisions = WatchDecisions::default();
-
-    for rel_path in rel_paths {
-        match decide_watch_action(
-            managed,
-            secrets,
-            allowlist,
-            auto_add_enabled,
-            &rel_path,
-        ) {
-            WatchAction::Ignore => {}
-            WatchAction::SecretPlaintext => {
-                decisions.secret_plaintext.insert(rel_path);
-            }
-            WatchAction::Managed {
-                auto_add,
-                is_allowed,
-                matches_allowlist,
-            } => {
-                decisions.managed_stage.insert(rel_path.clone());
-                if auto_add {
-                    decisions.auto_add.insert(rel_path.clone());
-                }
-                decisions.auto_add_meta.push(AutoAddMeta {
-                    path: rel_path,
-                    auto_add,
-                    is_allowed,
-                    matches_allowlist,
-                });
-            }
-        }
-    }
-
-    decisions
-}
-
-fn build_allowlist(patterns: &[String]) -> Result<globset::GlobSet> {
-    let mut builder = globset::GlobSetBuilder::new();
-    for pattern in patterns {
-        let trimmed = pattern.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        builder.add(globset::Glob::new(trimmed)?);
-    }
-    Ok(builder.build()?)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{build_allowlist, collect_watch_decisions, decide_watch_action, WatchAction};
-    use hometree_core::config::SecretRule;
-    use hometree_core::{Config, ManagedSet, Paths, SecretsManager};
-    use std::path::PathBuf;
-    use std::path::Path;
-    use tempfile::TempDir;
-
-    #[test]
-    fn allowlist_matches_expected_patterns() {
-        let list = build_allowlist(&vec![".config/**".to_string(), ".local/bin/*".to_string()])
-            .expect("allowlist");
-        assert!(list.is_match(Path::new(".config/app/config.toml")));
-        assert!(list.is_match(Path::new(".local/bin/script")));
-        assert!(!list.is_match(Path::new(".ssh/id_rsa")));
-    }
-
-    #[test]
-    fn decide_watch_actions_for_secrets() {
-        let temp = TempDir::new().expect("temp");
-        let home = temp.path().join("home");
-        let xdg = temp.path().join("xdg");
-        std::fs::create_dir_all(&home).unwrap();
-        std::fs::create_dir_all(&xdg).unwrap();
-
-        let paths = Paths::new_with_overrides(Some(&home), Some(&xdg)).expect("paths");
-        let mut config = Config::default_with_paths(&paths);
-        config.secrets.enabled = true;
-        config.secrets.rules.push(SecretRule {
-            path: ".config/app/secret.txt".to_string(),
-            ciphertext: None,
-            mode: None,
-        });
-        let managed = ManagedSet::from_config(&config).expect("managed");
-        let secrets = SecretsManager::from_config(&config.secrets);
-        let allowlist = build_allowlist(&vec![".config/**".to_string()]).expect("allowlist");
-
-        assert_eq!(
-            decide_watch_action(
-                &managed,
-                &secrets,
-                &allowlist,
-                true,
-                Path::new(".config/app/secret.txt")
-            ),
-            WatchAction::SecretPlaintext
-        );
-        assert_eq!(
-            decide_watch_action(
-                &managed,
-                &secrets,
-                &allowlist,
-                true,
-                Path::new(".config/app/secret.txt.age")
-            ),
-            WatchAction::Ignore
-        );
-        match decide_watch_action(
-            &managed,
-            &secrets,
-            &allowlist,
-            true,
-            Path::new(".config/app/config.toml"),
-        ) {
-            WatchAction::Managed { auto_add, .. } => {
-                assert!(auto_add);
-            }
-            other => panic!("unexpected action: {other:?}"),
-        }
-        assert_eq!(
-            decide_watch_action(
-                &managed,
-                &secrets,
-                &allowlist,
-                true,
-                Path::new(".local/share/other.txt")
-            ),
-            WatchAction::Ignore
-        );
-    }
-
-    #[test]
-    fn watch_decisions_produce_staging_lists() {
-        let temp = TempDir::new().expect("temp");
-        let home = temp.path().join("home");
-        let xdg = temp.path().join("xdg");
-        std::fs::create_dir_all(&home).unwrap();
-        std::fs::create_dir_all(&xdg).unwrap();
-
-        let paths = Paths::new_with_overrides(Some(&home), Some(&xdg)).expect("paths");
-        let mut config = Config::default_with_paths(&paths);
-        config.secrets.enabled = true;
-        config.secrets.rules.push(SecretRule {
-            path: ".config/app/secret.txt".to_string(),
-            ciphertext: None,
-            mode: None,
-        });
-        let managed = ManagedSet::from_config(&config).expect("managed");
-        let secrets = SecretsManager::from_config(&config.secrets);
-        let allowlist = build_allowlist(&vec![".config/**".to_string()]).expect("allowlist");
-
-        let rel_paths = vec![
-            PathBuf::from(".config/app/secret.txt"),
-            PathBuf::from(".config/app/secret.txt.age"),
-            PathBuf::from(".config/app/config.toml"),
-            PathBuf::from(".local/share/other.txt"),
-        ];
-
-        let decisions = collect_watch_decisions(&managed, &secrets, &allowlist, true, rel_paths);
-
-        assert!(decisions
-            .secret_plaintext
-            .contains(Path::new(".config/app/secret.txt")));
-        assert!(decisions
-            .managed_stage
-            .contains(Path::new(".config/app/config.toml")));
-        assert!(decisions
-            .auto_add
-            .contains(Path::new(".config/app/config.toml")));
-        assert!(!decisions
-            .managed_stage
-            .contains(Path::new(".config/app/secret.txt.age")));
-        assert!(!decisions
-            .managed_stage
-            .contains(Path::new(".local/share/other.txt")));
-    }
-}
-
 fn run_deploy(
     overrides: &Overrides,
     target: String,
@@ -951,6 +526,7 @@ fn run_deploy(
     no_backup: bool,
 ) -> Result<()> {
     let (paths, mut config) = load_config(overrides)?;
+    let _inhibit = daemon::DaemonInhibitGuard::new(&paths, "deploy", Duration::from_secs(300))?;
     if no_secrets {
         config.secrets.enabled = false;
     }
@@ -1173,13 +749,15 @@ fn run_secret_add(overrides: &Overrides, path: PathBuf) -> Result<()> {
     ensure_git_excludes(&paths, &config)?;
 
     let git = GitCliBackend::new();
-    git.add(
-        &config.repo.git_dir,
-        &config.repo.work_tree,
-        std::slice::from_ref(&ciphertext_rel),
-        AddMode::Paths,
-    )
-    .context("git add")?;
+    with_lock(&paths, || {
+        git.add(
+            &config.repo.git_dir,
+            &config.repo.work_tree,
+            std::slice::from_ref(&ciphertext_rel),
+            AddMode::Paths,
+        )
+        .context("git add")
+    })?;
 
     println!("secret added");
     Ok(())
@@ -1228,13 +806,15 @@ fn run_secret_refresh(overrides: &Overrides, paths: Vec<PathBuf>) -> Result<()> 
     }
 
     if !to_stage.is_empty() {
-        git.add(
-            &config.repo.git_dir,
-            &config.repo.work_tree,
-            &to_stage,
-            AddMode::Paths,
-        )
-        .context("git add")?;
+        with_lock(&paths_ctx, || {
+            git.add(
+                &config.repo.git_dir,
+                &config.repo.work_tree,
+                &to_stage,
+                AddMode::Paths,
+            )
+            .context("git add")
+        })?;
     }
 
     println!("refreshed {} secret(s)", to_stage.len());
@@ -1312,13 +892,15 @@ fn run_secret_rekey(overrides: &Overrides) -> Result<()> {
     }
 
     if !to_stage.is_empty() {
-        git.add(
-            &config.repo.git_dir,
-            &config.repo.work_tree,
-            &to_stage,
-            AddMode::Paths,
-        )
-        .context("git add")?;
+        with_lock(&paths_ctx, || {
+            git.add(
+                &config.repo.git_dir,
+                &config.repo.work_tree,
+                &to_stage,
+                AddMode::Paths,
+            )
+            .context("git add")
+        })?;
     }
 
     println!("rekeyed {} secret(s)", to_stage.len());
@@ -1344,6 +926,11 @@ fn load_config(overrides: &Overrides) -> Result<(Paths, Config)> {
         cfg.repo.work_tree = paths.home_dir().to_path_buf();
     }
     Ok((paths, cfg))
+}
+
+fn with_lock<T>(paths: &Paths, f: impl FnOnce() -> Result<T>) -> Result<T> {
+    let _lock = hometree_core::acquire_lock(paths)?;
+    f()
 }
 
 fn ensure_git_excludes(paths: &Paths, config: &Config) -> Result<()> {
@@ -1422,25 +1009,6 @@ fn status_paths(config: &Config) -> Vec<PathBuf> {
     set.into_iter().map(PathBuf::from).collect()
 }
 
-fn watch_paths(config: &Config) -> Vec<PathBuf> {
-    let mut set = BTreeSet::new();
-    for root in &config.manage.roots {
-        let trimmed = root.trim_start_matches("./");
-        if trimmed.is_empty() || has_glob_meta(trimmed) {
-            continue;
-        }
-        let path = trimmed.trim_end_matches("/**").trim_end_matches('/');
-        if !path.is_empty() {
-            set.insert(path.to_string());
-        }
-    }
-    for extra in &config.manage.extra_files {
-        if !extra.is_empty() {
-            set.insert(extra.clone());
-        }
-    }
-    set.into_iter().map(PathBuf::from).collect()
-}
 
 fn resolve_rel_path(home_dir: &Path, input: &Path) -> Result<PathBuf> {
     let abs = if input.is_absolute() {
@@ -1485,26 +1053,6 @@ fn git_rm_cached(git_dir: &Path, work_tree: &Path, paths: &[PathBuf]) -> Result<
     Ok(())
 }
 
-fn root_to_pathspec(root: &str) -> String {
-    let trimmed = root.trim_start_matches("./");
-    if trimmed.is_empty() {
-        return String::new();
-    }
-    if has_glob_meta(trimmed) {
-        if trimmed.starts_with(":(glob)") {
-            return trimmed.to_string();
-        }
-        return format!(":(glob){trimmed}");
-    }
-    trimmed
-        .trim_end_matches("/**")
-        .trim_end_matches('/')
-        .to_string()
-}
-
-fn has_glob_meta(pattern: &str) -> bool {
-    pattern.contains('*') || pattern.contains('?') || pattern.contains('[') || pattern.contains('{')
-}
 
 fn init_bare_repo(path: &Path) -> Result<()> {
     let status = Command::new("git")
