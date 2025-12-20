@@ -9,12 +9,13 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 hometree-core = { path = "../hometree-core" }
 globset = "0.4"
 notify = "6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde_json = "1"
 
 [lib]
 path = "src/lib.rs"
@@ -23,3 +24,4 @@ path = "src/lib.rs"
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
+age = "0.10"

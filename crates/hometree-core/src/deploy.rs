@@ -17,6 +17,7 @@ use walkdir::WalkDir;
 use crate::error::Result;
 use crate::generations::{append_generation, GenerationEntry};
 use crate::git::{GitBackend, TreeEntry};
+use crate::secrets::{AgeBackend, SecretsBackend, SecretsManager};
 use crate::{Config, ManagedSet, Paths};
 
 pub fn deploy(
@@ -25,12 +26,35 @@ pub fn deploy(
     git: &impl GitBackend,
     rev: &str,
 ) -> Result<GenerationEntry> {
+    deploy_with_options(config, paths, git, rev, DeployOptions { no_backup: false })
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DeployOptions {
+    pub no_backup: bool,
+}
+
+pub fn deploy_with_options(
+    config: &Config,
+    paths: &Paths,
+    git: &impl GitBackend,
+    rev: &str,
+    options: DeployOptions,
+) -> Result<GenerationEntry> {
     let _lock = acquire_lock(paths)?;
     let managed = ManagedSet::from_config(config)?;
+    let secrets = SecretsManager::from_config(&config.secrets);
+    let secrets_ref = if secrets.enabled() { Some(&secrets) } else { None };
+    let secrets_backend = if secrets.enabled() {
+        Some(AgeBackend::from_config(&config.secrets)?)
+    } else {
+        None
+    };
     let resolved = git.rev_parse(&config.repo.git_dir, &config.repo.work_tree, rev)?;
 
     let target_entries = collect_target_paths(
         &managed,
+        secrets_ref,
         git,
         &config.repo.git_dir,
         &config.repo.work_tree,
@@ -38,13 +62,22 @@ pub fn deploy(
     )?;
     let current_paths = collect_current_paths(
         &managed,
+        secrets_ref,
         paths.home_dir(),
         &config.manage.roots,
         &config.manage.extra_files,
     )?;
 
-    let backup_dir = create_backup_dir(paths)?;
-    backup_current(&backup_dir, paths.home_dir(), &current_paths)?;
+    if !options.no_backup {
+        let backup_dir = create_backup_dir(paths)?;
+        backup_current(&backup_dir, paths.home_dir(), &current_paths)?;
+        backup_secrets(
+            &backup_dir,
+            paths.home_dir(),
+            &secrets,
+            secrets_backend.as_ref(),
+        )?;
+    }
 
     apply_target(
         paths.home_dir(),
@@ -53,6 +86,16 @@ pub fn deploy(
         &config.repo.work_tree,
         &resolved,
         &target_entries,
+    )?;
+
+    apply_secrets(
+        paths.home_dir(),
+        &secrets,
+        secrets_backend.as_ref(),
+        git,
+        &config.repo.git_dir,
+        &config.repo.work_tree,
+        &resolved,
     )?;
 
     let target_paths: BTreeSet<PathBuf> = target_entries.keys().cloned().collect();
@@ -104,8 +147,9 @@ fn create_backup_dir(paths: &Paths) -> Result<PathBuf> {
     Ok(dir)
 }
 
-fn collect_target_paths(
+pub(crate) fn collect_target_paths(
     managed: &ManagedSet,
+    secrets: Option<&SecretsManager>,
     git: &impl GitBackend,
     git_dir: &Path,
     work_tree: &Path,
@@ -115,15 +159,19 @@ fn collect_target_paths(
     let entries = git.ls_tree_detailed(git_dir, work_tree, rev)?;
     for entry in entries {
         let rel = PathBuf::from(&entry.path);
-        if managed.is_managed(&rel) {
+        let is_secret_cipher = secrets
+            .map(|secrets| secrets.is_ciphertext_rule_path(&rel))
+            .unwrap_or(false);
+        if managed.is_managed(&rel) || is_secret_cipher {
             map.insert(rel, entry);
         }
     }
     Ok(map)
 }
 
-fn collect_current_paths(
+pub(crate) fn collect_current_paths(
     managed: &ManagedSet,
+    secrets: Option<&SecretsManager>,
     home_dir: &Path,
     roots: &[String],
     extra_files: &[String],
@@ -133,7 +181,10 @@ fn collect_current_paths(
     for extra in extra_files {
         let rel = PathBuf::from(extra);
         let abs = home_dir.join(&rel);
-        if abs.exists() && managed.is_managed(&rel) {
+        let is_secret_cipher = secrets
+            .map(|secrets| secrets.is_ciphertext_rule_path(&rel))
+            .unwrap_or(false);
+        if abs.exists() && (managed.is_managed(&rel) || is_secret_cipher) {
             set.insert(rel);
         }
     }
@@ -159,7 +210,10 @@ fn collect_current_paths(
                 Ok(rel) => rel.to_path_buf(),
                 Err(_) => continue,
             };
-            if managed.is_managed(&rel) {
+            let is_secret_cipher = secrets
+                .map(|secrets| secrets.is_ciphertext_rule_path(&rel))
+                .unwrap_or(false);
+            if managed.is_managed(&rel) || is_secret_cipher {
                 set.insert(rel);
             }
         }
@@ -204,6 +258,103 @@ fn backup_current(backup_dir: &Path, home_dir: &Path, current: &BTreeSet<PathBuf
         }
         let _ = fs::copy(&src, &dest);
     }
+    Ok(())
+}
+
+fn backup_secrets(
+    backup_dir: &Path,
+    home_dir: &Path,
+    secrets: &SecretsManager,
+    backend: Option<&AgeBackend>,
+) -> Result<()> {
+    if !secrets.enabled() {
+        return Ok(());
+    }
+
+    for rule in secrets.rules() {
+        let plaintext_rel = secrets.plaintext_path(rule);
+        let plaintext_abs = home_dir.join(&plaintext_rel);
+        if !plaintext_abs.exists() {
+            continue;
+        }
+        match secrets.backup_policy() {
+            crate::config::BackupPolicy::Skip => {}
+            crate::config::BackupPolicy::Plaintext => {
+                let dest = backup_dir.join(&plaintext_rel);
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                let _ = fs::copy(&plaintext_abs, &dest);
+            }
+            crate::config::BackupPolicy::Encrypt => {
+                let backend = backend.ok_or_else(|| {
+                    std::io::Error::other("secrets backend missing for backup")
+                })?;
+                let plaintext = fs::read(&plaintext_abs)?;
+                let ciphertext = backend.encrypt(&plaintext)?;
+                let ciphertext_rel = secrets.ciphertext_path(rule);
+                let dest = backup_dir.join(ciphertext_rel);
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&dest, ciphertext)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn apply_secrets(
+    home_dir: &Path,
+    secrets: &SecretsManager,
+    backend: Option<&AgeBackend>,
+    git: &impl GitBackend,
+    git_dir: &Path,
+    work_tree: &Path,
+    rev: &str,
+) -> Result<()> {
+    if !secrets.enabled() {
+        return Ok(());
+    }
+    let backend = backend.ok_or_else(|| std::io::Error::other("secrets backend missing"))?;
+
+    for rule in secrets.rules() {
+        let plaintext_rel = secrets.plaintext_path(rule);
+        let ciphertext_rel = secrets.ciphertext_path(rule);
+        let ciphertext = git.show_blob(git_dir, work_tree, rev, &ciphertext_rel)?;
+        let plaintext = backend.decrypt(&ciphertext)?;
+        let dest = home_dir.join(&plaintext_rel);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        if let Ok(meta) = fs::symlink_metadata(&dest) {
+            if meta.is_dir() {
+                return Err(
+                    std::io::Error::other("refusing to replace directory with secret file").into(),
+                );
+            }
+            if meta.file_type().is_symlink() {
+                fs::remove_file(&dest)?;
+            }
+        }
+        let mode = rule.mode.unwrap_or(0o600);
+        let mut options = OpenOptions::new();
+        options.create(true).write(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(mode);
+        }
+        let mut file = options.open(&dest)?;
+        file.write_all(&plaintext)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&dest, fs::Permissions::from_mode(mode))?;
+        }
+    }
+
     Ok(())
 }
 
@@ -621,6 +772,7 @@ mod tests {
 
         let current = collect_current_paths(
             &managed,
+            None,
             home,
             &config.manage.roots,
             &config.manage.extra_files,

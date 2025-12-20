@@ -15,12 +15,46 @@ pub struct Paths {
 
 impl Paths {
     pub fn new() -> Result<Self> {
-        let base = BaseDirs::new().ok_or(HometreeError::NoBaseDirs)?;
-        let home_dir = base.home_dir().to_path_buf();
-        let config_dir = base.config_dir().join("hometree");
-        let data_dir = base.data_dir().join("hometree");
-        let state_dir = base.state_dir().unwrap_or(base.data_dir()).join("hometree");
-        let cache_dir = base.cache_dir().join("hometree");
+        Self::new_with_overrides(None, None)
+    }
+
+    pub fn new_with_overrides(
+        home_root: Option<&Path>,
+        xdg_root: Option<&Path>,
+    ) -> Result<Self> {
+        let base = BaseDirs::new();
+        let home_dir = match home_root {
+            Some(root) => root.to_path_buf(),
+            None => base
+                .as_ref()
+                .ok_or(HometreeError::NoBaseDirs)?
+                .home_dir()
+                .to_path_buf(),
+        };
+
+        let (config_dir, data_dir, state_dir, cache_dir) = if let Some(xdg_root) = xdg_root {
+            (
+                xdg_root.join("config").join("hometree"),
+                xdg_root.join("data").join("hometree"),
+                xdg_root.join("state").join("hometree"),
+                xdg_root.join("cache").join("hometree"),
+            )
+        } else if home_root.is_some() {
+            (
+                home_dir.join(".config").join("hometree"),
+                home_dir.join(".local").join("share").join("hometree"),
+                home_dir.join(".local").join("state").join("hometree"),
+                home_dir.join(".cache").join("hometree"),
+            )
+        } else {
+            let base = base.ok_or(HometreeError::NoBaseDirs)?;
+            (
+                base.config_dir().join("hometree"),
+                base.data_dir().join("hometree"),
+                base.state_dir().unwrap_or(base.data_dir()).join("hometree"),
+                base.cache_dir().join("hometree"),
+            )
+        };
 
         Ok(Self {
             home_dir,
@@ -37,6 +71,13 @@ impl Paths {
 
     pub fn config_dir(&self) -> &Path {
         &self.config_dir
+    }
+
+    pub fn config_home_dir(&self) -> PathBuf {
+        self.config_dir
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| self.config_dir.clone())
     }
 
     pub fn data_dir(&self) -> &Path {
@@ -63,6 +104,7 @@ impl Paths {
 #[cfg(test)]
 mod tests {
     use super::Paths;
+    use tempfile::TempDir;
 
     #[test]
     fn paths_include_hometree_suffix() {
@@ -71,5 +113,19 @@ mod tests {
         assert!(paths.data_dir().ends_with("hometree"));
         assert!(paths.state_dir().ends_with("hometree"));
         assert!(paths.cache_dir().ends_with("hometree"));
+    }
+
+    #[test]
+    fn paths_support_overrides() {
+        let temp = TempDir::new().expect("tempdir");
+        let home = temp.path().join("home");
+        let xdg = temp.path().join("xdg");
+
+        let paths = Paths::new_with_overrides(Some(&home), Some(&xdg)).expect("paths resolve");
+        assert_eq!(paths.home_dir(), home);
+        assert!(paths.config_dir().starts_with(xdg.join("config")));
+        assert!(paths.data_dir().starts_with(xdg.join("data")));
+        assert!(paths.state_dir().starts_with(xdg.join("state")));
+        assert!(paths.cache_dir().starts_with(xdg.join("cache")));
     }
 }

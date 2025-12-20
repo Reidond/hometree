@@ -1,5 +1,7 @@
 use assert_cmd::prelude::*;
+use age::secrecy::ExposeSecret;
 use hometree_core::read_generations;
+use hometree_core::{config::BackupPolicy, Config};
 use predicates::str::contains;
 use predicates::Predicate;
 use std::fs;
@@ -38,6 +40,15 @@ fn cmd(temp: &TempDir) -> Command {
     cmd
 }
 
+fn cmd_with_overrides(temp: &TempDir, home_root: &Path, xdg_root: &Path) -> Command {
+    let mut cmd = cmd(temp);
+    cmd.arg("--home-root")
+        .arg(home_root)
+        .arg("--xdg-root")
+        .arg(xdg_root);
+    cmd
+}
+
 fn repo_dir(data: &Path) -> PathBuf {
     data.join("hometree/repo.git")
 }
@@ -60,6 +71,20 @@ fn git_rev(repo: &Path, work_tree: &Path, spec: &str) -> String {
     String::from_utf8(output.stdout).unwrap().trim().to_string()
 }
 
+fn git_add_force(repo: &Path, work_tree: &Path, path: &Path) {
+    let status = Command::new("git")
+        .arg("--git-dir")
+        .arg(repo)
+        .arg("--work-tree")
+        .arg(work_tree)
+        .arg("add")
+        .arg("-f")
+        .arg(path)
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
 #[test]
 fn init_creates_xdg_layout() {
     let temp = TempDir::new().unwrap();
@@ -70,6 +95,25 @@ fn init_creates_xdg_layout() {
     assert!(config.join("hometree/config.toml").exists());
     assert!(data.join("hometree/repo.git").exists());
     assert!(state.join("hometree").exists());
+}
+
+#[test]
+fn init_respects_root_overrides() {
+    let temp = TempDir::new().unwrap();
+    let override_home = temp.path().join("override-home");
+    let override_xdg = temp.path().join("override-xdg");
+    fs::create_dir_all(&override_home).unwrap();
+
+    cmd_with_overrides(&temp, &override_home, &override_xdg)
+        .arg("init")
+        .assert()
+        .success();
+
+    assert!(override_xdg
+        .join("config/hometree/config.toml")
+        .exists());
+    assert!(override_xdg.join("data/hometree/repo.git").exists());
+    assert!(override_xdg.join("state/hometree").exists());
 }
 
 #[test]
@@ -201,6 +245,201 @@ fn deploy_and_rollback_flow() {
 
     let contents = fs::read_to_string(&file_path).unwrap();
     assert_eq!(contents, "v2");
+}
+
+#[test]
+fn verify_reports_clean_for_deployed_tree() {
+    let temp = TempDir::new().unwrap();
+    let home_src = temp.path().join("home-src");
+    let home_target = temp.path().join("home-target");
+    let xdg_root = temp.path().join("xdg-root");
+    fs::create_dir_all(&home_src).unwrap();
+    fs::create_dir_all(&home_target).unwrap();
+
+    let file_path = home_src.join(".config/app/config.toml");
+    fs::create_dir_all(file_path.parent().unwrap()).unwrap();
+    fs::write(&file_path, "v1").unwrap();
+
+    cmd_with_overrides(&temp, &home_src, &xdg_root)
+        .arg("init")
+        .assert()
+        .success();
+    cmd_with_overrides(&temp, &home_src, &xdg_root)
+        .args(["track", file_path.to_string_lossy().as_ref()])
+        .assert()
+        .success();
+    cmd_with_overrides(&temp, &home_src, &xdg_root)
+        .args(["snapshot", "-m", "first"])
+        .assert()
+        .success();
+
+    cmd_with_overrides(&temp, &home_target, &xdg_root)
+        .args(["deploy", "HEAD"])
+        .assert()
+        .success();
+
+    cmd_with_overrides(&temp, &home_target, &xdg_root)
+        .arg("verify")
+        .assert()
+        .success();
+
+    let target_file = home_target.join(".config/app/config.toml");
+    fs::write(&target_file, "drifted").unwrap();
+    cmd_with_overrides(&temp, &home_target, &xdg_root)
+        .arg("verify")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn secrets_sidecar_deploy_and_verify() {
+    let temp = TempDir::new().unwrap();
+    let home_src = temp.path().join("home-src");
+    let home_target = temp.path().join("home-target");
+    let xdg_root = temp.path().join("xdg-root");
+    fs::create_dir_all(&home_src).unwrap();
+    fs::create_dir_all(&home_target).unwrap();
+
+    let secret_path = home_src.join(".config/app/secret.txt");
+    fs::create_dir_all(secret_path.parent().unwrap()).unwrap();
+    fs::write(&secret_path, "top-secret").unwrap();
+
+    let identity = age::x25519::Identity::generate();
+    let recipient = identity.to_public().to_string();
+    let identity_path = temp.path().join("identity.txt");
+    fs::write(
+        &identity_path,
+        identity.to_string().expose_secret().as_bytes(),
+    )
+    .unwrap();
+
+    cmd_with_overrides(&temp, &home_src, &xdg_root)
+        .arg("init")
+        .assert()
+        .success();
+
+    let config_path = xdg_root.join("config/hometree/config.toml");
+    let mut cfg = Config::load_from(&config_path).unwrap();
+    cfg.secrets.enabled = true;
+    cfg.secrets.recipients = vec![recipient];
+    cfg.secrets.identity_files = vec![identity_path.clone()];
+    cfg.secrets.backup_policy = BackupPolicy::Encrypt;
+    cfg.write_to(&config_path).unwrap();
+
+    cmd_with_overrides(&temp, &home_src, &xdg_root)
+        .args(["secret", "add", secret_path.to_string_lossy().as_ref()])
+        .assert()
+        .success();
+
+    let sidecar = home_src.join(".config/app/secret.txt.age");
+    assert!(sidecar.exists());
+
+    // Exercise `secret refresh` without changing recipients
+    cmd_with_overrides(&temp, &home_src, &xdg_root)
+        .args(["secret", "refresh"])
+        .assert()
+        .success();
+
+    cmd_with_overrides(&temp, &home_src, &xdg_root)
+        .args(["snapshot", "-m", "secret"])
+        .assert()
+        .success();
+
+    fs::remove_file(&secret_path).unwrap();
+
+    cmd_with_overrides(&temp, &home_target, &xdg_root)
+        .args(["deploy", "HEAD"])
+        .assert()
+        .success();
+
+    let restored = fs::read_to_string(home_target.join(".config/app/secret.txt")).unwrap();
+    assert_eq!(restored, "top-secret");
+
+    cmd_with_overrides(&temp, &home_target, &xdg_root)
+        .args(["verify", "--with-secrets", "decrypt"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn snapshot_rejects_staged_plaintext_secret() {
+    let temp = TempDir::new().unwrap();
+    let home_src = temp.path().join("home-src");
+    let xdg_root = temp.path().join("xdg-root");
+    fs::create_dir_all(&home_src).unwrap();
+
+    let secret_path = home_src.join(".config/app/secret.txt");
+    fs::create_dir_all(secret_path.parent().unwrap()).unwrap();
+    fs::write(&secret_path, "top-secret").unwrap();
+
+    let identity = age::x25519::Identity::generate();
+    let recipient = identity.to_public().to_string();
+    let identity_path = temp.path().join("identity.txt");
+    fs::write(
+        &identity_path,
+        identity.to_string().expose_secret().as_bytes(),
+    )
+    .unwrap();
+
+    cmd_with_overrides(&temp, &home_src, &xdg_root)
+        .arg("init")
+        .assert()
+        .success();
+
+    let config_path = xdg_root.join("config/hometree/config.toml");
+    let mut cfg = Config::load_from(&config_path).unwrap();
+    cfg.secrets.enabled = true;
+    cfg.secrets.recipients = vec![recipient];
+    cfg.secrets.identity_files = vec![identity_path.clone()];
+    cfg.write_to(&config_path).unwrap();
+
+    cmd_with_overrides(&temp, &home_src, &xdg_root)
+        .args(["secret", "add", secret_path.to_string_lossy().as_ref()])
+        .assert()
+        .success();
+
+    let repo = repo_dir(&xdg_root.join("data"));
+    git_add_force(&repo, &home_src, Path::new(".config/app/secret.txt"));
+
+    cmd_with_overrides(&temp, &home_src, &xdg_root)
+        .args(["snapshot", "-m", "should-fail"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn plan_deploy_outputs_expected_actions() {
+    let temp = TempDir::new().unwrap();
+    let home_src = temp.path().join("home-src");
+    let home_target = temp.path().join("home-target");
+    let xdg_root = temp.path().join("xdg-root");
+    fs::create_dir_all(&home_src).unwrap();
+    fs::create_dir_all(&home_target).unwrap();
+
+    let config_file = home_src.join(".config/app/config.toml");
+    fs::create_dir_all(config_file.parent().unwrap()).unwrap();
+    fs::write(&config_file, "v1").unwrap();
+
+    cmd_with_overrides(&temp, &home_src, &xdg_root)
+        .arg("init")
+        .assert()
+        .success();
+
+    cmd_with_overrides(&temp, &home_src, &xdg_root)
+        .args(["track", config_file.to_string_lossy().as_ref()])
+        .assert()
+        .success();
+
+    cmd_with_overrides(&temp, &home_src, &xdg_root)
+        .args(["snapshot", "-m", "first"])
+        .assert()
+        .success();
+
+    cmd_with_overrides(&temp, &home_target, &xdg_root)
+        .args(["plan", "deploy", "HEAD"])
+        .assert()
+        .success()
+        .stdout(contains("create .config/app/config.toml"));
 }
 
 #[test]

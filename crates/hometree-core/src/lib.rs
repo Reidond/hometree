@@ -4,11 +4,17 @@ pub mod error;
 pub mod generations;
 pub mod git;
 pub mod managed_set;
+pub mod plan;
 pub mod paths;
+pub mod secrets;
+pub mod verify;
 
 pub use config::Config;
-pub use deploy::{deploy, rollback};
+pub use deploy::{deploy, deploy_with_options, rollback, DeployOptions};
 pub use error::{HometreeError, Result};
 pub use generations::{append_generation, read_generations, GenerationEntry};
 pub use managed_set::ManagedSet;
+pub use plan::{plan_deploy, DeployPlan, PlanAction, PlanEntry};
 pub use paths::Paths;
+pub use secrets::{AgeBackend, SecretsBackend, SecretsManager};
+pub use verify::{verify, VerifyOptions, VerifyReport};

@@ -13,6 +13,8 @@ pub struct Config {
     pub ignore: IgnoreConfig,
     pub watch: WatchConfig,
     pub snapshot: SnapshotConfig,
+    #[serde(default)]
+    pub secrets: SecretsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +46,55 @@ pub struct WatchConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotConfig {
     pub auto_message_template: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SecretsConfig {
+    pub enabled: bool,
+    pub backend: String,
+    pub sidecar_suffix: String,
+    pub recipients: Vec<String>,
+    pub identity_files: Vec<PathBuf>,
+    pub rules: Vec<SecretRule>,
+    pub backup_policy: BackupPolicy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecretRule {
+    pub path: String,
+    #[serde(default)]
+    pub ciphertext: Option<String>,
+    #[serde(default)]
+    pub mode: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackupPolicy {
+    Encrypt,
+    Skip,
+    Plaintext,
+}
+
+impl Default for SecretsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            backend: "age".to_string(),
+            sidecar_suffix: ".age".to_string(),
+            recipients: Vec::new(),
+            identity_files: Vec::new(),
+            rules: Vec::new(),
+            backup_policy: BackupPolicy::Encrypt,
+        }
+    }
+}
+
+impl Default for BackupPolicy {
+    fn default() -> Self {
+        BackupPolicy::Encrypt
+    }
 }
 
 impl Config {
@@ -87,6 +138,7 @@ impl Config {
             snapshot: SnapshotConfig {
                 auto_message_template: None,
             },
+            secrets: SecretsConfig::default(),
         }
     }
 
@@ -101,7 +153,8 @@ impl Config {
 
     pub fn load_from(path: &Path) -> Result<Self> {
         let contents = fs::read_to_string(path)?;
-        let config: Self = toml::from_str(&contents)?;
+        let mut config: Self = toml::from_str(&contents)?;
+        config.apply_secrets_defaults();
         config.validate()?;
         Ok(config)
     }
@@ -134,7 +187,37 @@ impl Config {
                 )));
             }
         }
+        if self.secrets.enabled {
+            if self.secrets.backend != "age" {
+                return Err(crate::error::HometreeError::Config(format!(
+                    "unsupported secrets backend: {}",
+                    self.secrets.backend
+                )));
+            }
+            if self.secrets.sidecar_suffix.trim().is_empty() {
+                return Err(crate::error::HometreeError::Config(
+                    "secrets.sidecar_suffix cannot be empty".to_string(),
+                ));
+            }
+        }
         Ok(())
+    }
+
+    fn apply_secrets_defaults(&mut self) {
+        if !self.secrets.enabled {
+            return;
+        }
+        if self.secrets.sidecar_suffix.trim().is_empty() {
+            self.secrets.sidecar_suffix = ".age".to_string();
+        }
+        for rule in &self.secrets.rules {
+            if rule.path.trim().is_empty() {
+                continue;
+            }
+            if !self.ignore.patterns.contains(&rule.path) {
+                self.ignore.patterns.push(rule.path.clone());
+            }
+        }
     }
 }
 
