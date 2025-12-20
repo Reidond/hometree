@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run hometree (cargo run)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "cargo run -p hometree-cli",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug hometree (LLDB)",
+      "type": "lldb-dap",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/hometree",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "cargo: build (hometree-cli)",
+      "env": {
+        "RUST_LOG": "info"
+      }
+    }
+  ]
+}

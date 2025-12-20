@@ -1,0 +1,45 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "cargo: build (hometree-cli)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "export PATH=\"$HOME/.cargo/bin:$PATH\" && cargo build -p hometree-cli"
+      ],
+      "group": "build"
+    },
+    {
+      "label": "cargo: run (hometree-cli)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "export PATH=\"$HOME/.cargo/bin:$PATH\" && cargo run -p hometree-cli --"
+      ],
+      "group": "build"
+    },
+    {
+      "label": "cargo: test (hometree-core)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "export PATH=\"$HOME/.cargo/bin:$PATH\" && cargo test -p hometree-core"
+      ],
+      "group": "test"
+    },
+    {
+      "label": "cargo: test (hometree-cli)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "export PATH=\"$HOME/.cargo/bin:$PATH\" && cargo test -p hometree-cli"
+      ],
+      "group": "test"
+    }
+  ]
+}
