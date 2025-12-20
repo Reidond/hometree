@@ -148,7 +148,7 @@ fn run_daemon_foreground(overrides: &Overrides, _foreground: bool) -> Result<()>
     )));
 
     let (control_tx, control_rx) = mpsc::channel();
-    let _ipc = start_ipc_server(&socket_path, control_tx.clone(), shared.clone())?;
+    start_ipc_server(&socket_path, control_tx.clone(), shared.clone())?;
     install_sighup_handler(control_tx.clone())?;
 
     let (mut _watcher, mut rx) = setup_watcher(&ctx.paths, &ctx.watch_roots)?;
@@ -463,7 +463,7 @@ fn flush_changes(
         Ok(())
     })();
 
-    if let Err(_) = result {
+    if result.is_err() {
         requeue(
             debouncer,
             secrets_debouncer,
@@ -1114,7 +1114,7 @@ impl Backoff {
     }
 
     fn ready(&self, now: Instant) -> bool {
-        self.until.map_or(true, |u| now >= u)
+        self.until.is_none_or(|u| now >= u)
     }
 
     fn fail(&mut self, now: Instant) {

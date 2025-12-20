@@ -56,8 +56,7 @@ impl AgeBackend {
         if self.recipients.is_empty() {
             return Err(HometreeError::Config(
                 "secrets enabled but recipients list is empty".to_string(),
-            )
-            .into());
+            ));
         }
         Ok(())
     }
@@ -66,8 +65,7 @@ impl AgeBackend {
         if self.identities.is_empty() {
             return Err(HometreeError::Config(
                 "secrets enabled but identity files are missing".to_string(),
-            )
-            .into());
+            ));
         }
         Ok(())
     }
@@ -106,8 +104,7 @@ impl SecretsBackend for AgeBackend {
             Decryptor::Passphrase(_) => {
                 return Err(HometreeError::Config(
                     "passphrase encryption is not supported".to_string(),
-                )
-                .into())
+                ))
             }
         };
         let mut reader = decryptor

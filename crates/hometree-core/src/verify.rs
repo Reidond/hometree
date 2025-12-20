@@ -136,6 +136,7 @@ pub fn verify(
     Ok(report)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_expected(
     target_entries: &BTreeMap<PathBuf, crate::git::TreeEntry>,
     home_dir: &Path,
@@ -204,6 +205,7 @@ fn exec_bit_mismatch(_meta: &fs::Metadata, _expected_exec: bool) -> bool {
     false
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_secrets(
     config: &Config,
     paths: &Paths,

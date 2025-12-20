@@ -69,9 +69,10 @@ pub struct SecretRule {
     pub mode: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BackupPolicy {
+    #[default]
     Encrypt,
     Skip,
     Plaintext,
@@ -88,12 +89,6 @@ impl Default for SecretsConfig {
             rules: Vec::new(),
             backup_policy: BackupPolicy::Encrypt,
         }
-    }
-}
-
-impl Default for BackupPolicy {
-    fn default() -> Self {
-        BackupPolicy::Encrypt
     }
 }
 
