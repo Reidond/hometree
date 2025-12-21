@@ -1,3 +1,7 @@
+---
+title: Deploy & Rollback
+---
+
 # Deploy and rollback
 
 Deploy applies a specific commit to your managed paths in `$HOME`. Rollback re-applies a previous generation.

@@ -1,3 +1,7 @@
+---
+title: Troubleshooting
+---
+
 # Troubleshooting
 
 ## "auto_add_allow_patterns contains overly broad pattern"

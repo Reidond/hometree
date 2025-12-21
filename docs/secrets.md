@@ -1,3 +1,7 @@
+---
+title: Secrets
+---
+
 # Secrets
 
 ## Threat model

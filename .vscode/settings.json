@@ -1,0 +1,43 @@
+{
+  // Exclude generated route tree from watcher/search
+  "files.watcherExclude": {
+    "**/website/src/routeTree.gen.ts": true,
+    "**/website/.source/**": true,
+    "**/website/.vinxi/**": true,
+    "**/website/.output/**": true
+  },
+  "search.exclude": {
+    "**/website/src/routeTree.gen.ts": true,
+    "**/website/.source/**": true,
+    "**/website/node_modules/**": true
+  },
+  "files.readonlyInclude": {
+    "**/website/src/routeTree.gen.ts": true
+  },
+  // Prettier as default formatter
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  // ESLint
+  "eslint.workingDirectories": [
+    "website"
+  ],
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  // Language-specific settings for website
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[css]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  }
+}

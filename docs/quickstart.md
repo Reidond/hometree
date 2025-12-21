@@ -1,3 +1,7 @@
+---
+title: Quick Start
+---
+
 # Quick start
 
 This is the shortest path to a working setup.

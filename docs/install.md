@@ -1,3 +1,7 @@
+---
+title: Installation
+---
+
 # Install / build
 
 hometree is a Rust CLI. The project is Linux-first and uses systemd for optional daemon integration.

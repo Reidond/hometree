@@ -1,3 +1,7 @@
+---
+title: Paths & XDG
+---
+
 # Paths and XDG mapping
 
 Path resolution lives in `crates/hometree-core/src/paths.rs`. All paths are derived from XDG locations unless overrides are provided.

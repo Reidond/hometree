@@ -1,3 +1,7 @@
+---
+title: FAQ
+---
+
 # FAQ
 
 ## Does hometree scan my entire home directory?

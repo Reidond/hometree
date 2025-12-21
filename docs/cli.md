@@ -1,3 +1,7 @@
+---
+title: CLI Reference
+---
+
 # hometree CLI
 
 Reference for every hometree command, flag, and safety default. Examples are copy/pasteable on Linux shells.

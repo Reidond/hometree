@@ -20,3 +20,22 @@ target
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 .code/
+
+node_modules
+
+.DS_Store
+.cache
+.vercel
+.output
+.nitro
+website/build/
+website/api/
+website/server/build
+website/public/build
+website/test-results/
+website/playwright-report/
+website/blob-report/
+website/playwright/.cache/
+.tanstack
+
+.source

@@ -1,3 +1,7 @@
+---
+title: Configuration
+---
+
 # Configuration
 
 This file describes the TOML configuration used by hometree. Defaults come from `crates/hometree-core/src/config.rs` and paths from `crates/hometree-core/src/paths.rs`.

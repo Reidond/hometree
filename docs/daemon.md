@@ -1,3 +1,7 @@
+---
+title: Daemon
+---
+
 # hometree daemon (watch)
 
 How to run the watcher in the foreground or as a systemd user service. The watcher is event-driven (notify + debounce) and never scans your full home directory.

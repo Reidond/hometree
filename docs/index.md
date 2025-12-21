@@ -1,3 +1,8 @@
+---
+title: hometree
+description: Documentation for hometree
+---
+
 # hometree docs
 
 Linux-first CLI for managing a versioned subset of your home directory using a bare git repo.

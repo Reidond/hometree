@@ -1,3 +1,7 @@
+---
+title: Safety Model
+---
+
 # Safety model
 
 - Threat scope: prevent accidental leakage of sensitive home files into git; no protection against a rooted host. Use OS disk encryption for rest.

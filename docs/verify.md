@@ -1,3 +1,7 @@
+---
+title: Verify
+---
+
 # Verify
 
 `verify` compares the current home tree against a target commit.
