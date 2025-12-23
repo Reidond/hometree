@@ -14,30 +14,30 @@
   "files.readonlyInclude": {
     "**/website/src/routeTree.gen.ts": true
   },
-  // Prettier as default formatter
-  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  // Biome as default formatter for website
+  "editor.defaultFormatter": "biomejs.biome",
   "editor.formatOnSave": true,
-  // ESLint
-  "eslint.workingDirectories": [
-    "website"
-  ],
+  // Biome working directory
+  "biome.configPath": "website/biome.json",
+  // Code actions on save
   "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": "explicit"
+    "quickfix.biome": "explicit",
+    "source.organizeImports.biome": "explicit"
   },
   // Language-specific settings for website
   "[typescript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "biomejs.biome"
   },
   "[typescriptreact]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "biomejs.biome"
   },
   "[javascript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "biomejs.biome"
   },
   "[json]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "biomejs.biome"
   },
   "[css]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "biomejs.biome"
   }
 }
