@@ -64,6 +64,7 @@ mode = 0o600
 | --- | --- | --- | --- |
 | `roots` | array of relative paths | `[".config/", ".local/bin/", ".local/share/systemd/user/", ".local/share/applications/"]` | Managed directories (relative to `work_tree`). Trailing `/` is allowed. |
 | `extra_files` | array of relative paths | `[]` | Individual files to manage outside the roots list. |
+| `allow_outside` | bool | `true` | Allow tracking files outside managed roots without `--allow-outside` flag. |
 
 ### [ignore]
 

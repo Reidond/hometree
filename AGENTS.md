@@ -11,9 +11,6 @@ Short, practical guidance for agents working on this repo.
 Prefer per-crate tests:
 
 ```bash
-# Ensure rustc/cargo are on PATH in this environment
-export PATH="$HOME/.cargo/bin:$PATH"
-
 cargo test -p hometree-core
 cargo test -p hometree-cli
 ```
@@ -21,18 +18,13 @@ cargo test -p hometree-cli
 Workspace-wide (optional):
 
 ```bash
-export PATH="$HOME/.cargo/bin:$PATH"
 cargo test --workspace
 ```
-
-Notes:
-- In this environment, `rustc` may not be on PATH unless you add `~/.cargo/bin`.
 
 ## Lint/format (if needed)
 No repo-local lint config is defined. If asked to lint/format, use:
 
 ```bash
-export PATH="$HOME/.cargo/bin:$PATH"
 cargo fmt --all
 cargo clippy --workspace -- -D warnings
 ```

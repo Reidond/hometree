@@ -27,6 +27,12 @@ pub struct RepoConfig {
 pub struct ManageConfig {
     pub roots: Vec<String>,
     pub extra_files: Vec<String>,
+    #[serde(default = "default_allow_outside")]
+    pub allow_outside: bool,
+}
+
+fn default_allow_outside() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +113,7 @@ impl Config {
                     ".local/share/applications/".to_string(),
                 ],
                 extra_files: Vec::new(),
+                allow_outside: true,
             },
             ignore: IgnoreConfig {
                 patterns: vec![

@@ -37,7 +37,8 @@ hometree status
 ```
 hometree track [--allow-outside] [--force] <path>...
 ```
-- Tracks paths relative to `$HOME`. Paths already under managed roots are added directly; outside paths require `--allow-outside` and are appended to `manage.extra_files`.
+- Tracks paths relative to `$HOME`. Paths already under managed roots are added directly; outside paths are appended to `manage.extra_files`.
+- By default, files outside managed roots are allowed (configurable via `manage.allow_outside` in config). Use `--allow-outside` to explicitly override if config disables it.
 - Honors ignore/denylist; use `--force` to override. Refuses plaintext secret paths (`use hometree secret add`).
 - Stages tracked paths in git. Updates `config.toml` when extra files are added.
 

@@ -405,7 +405,7 @@ fn run_track(
             home_dir,
             &managed,
             &config.manage.roots,
-            allow_outside,
+            config.manage.allow_outside || allow_outside,
             force,
         )?;
 
