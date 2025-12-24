@@ -126,6 +126,18 @@ hometree secret rekey
 - `status`: reports `in-sync`, `drift`, `missing-plaintext`, `missing-ciphertext`, or `decrypt-error` per rule; redacts paths unless `--show-paths`.
 - `rekey`: re-encrypts all secrets with current recipients. Requires secrets enabled and identity files for decryption.
 
+### remote
+```
+hometree remote add <name> <url>
+hometree remote remove <name>
+hometree remote list
+hometree remote push [remote] [-b branch] [-u]
+```
+- `add`: adds a git remote (e.g., `hometree remote add origin git@github.com:user/dotfiles.git`).
+- `remove`: removes a configured remote.
+- `list`: shows all configured remotes with their URLs.
+- `push`: pushes to a remote (default: `origin`). Use `-b` to specify a branch, `-u` to set upstream tracking.
+
 ## Examples
 ```bash
 # Initialize and use a temp HOME/XDG root for testing
@@ -148,4 +160,9 @@ cat > ~/.config/app/secret.txt <<'EOF'
 super-secret
 EOF
 hometree secret add ~/.config/app/secret.txt
+
+# Add GitHub remote and push
+hometree remote add origin git@github.com:user/dotfiles.git
+hometree remote push -u origin -b main
+hometree remote list
 ```

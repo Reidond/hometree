@@ -105,10 +105,31 @@ pub trait GitBackend {
     fn checkout(&self, git_dir: &Path, work_tree: &Path, rev: &str) -> GitResult<()>;
 
     fn get_commit_info(&self, git_dir: &Path, work_tree: &Path, rev: &str) -> GitResult<String>;
+
+    fn remote_add(&self, git_dir: &Path, work_tree: &Path, name: &str, url: &str) -> GitResult<()>;
+
+    fn remote_remove(&self, git_dir: &Path, work_tree: &Path, name: &str) -> GitResult<()>;
+
+    fn remote_list(&self, git_dir: &Path, work_tree: &Path) -> GitResult<Vec<RemoteInfo>>;
+
+    fn push(
+        &self,
+        git_dir: &Path,
+        work_tree: &Path,
+        remote: &str,
+        refspec: Option<&str>,
+        set_upstream: bool,
+    ) -> GitResult<String>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TreeEntry {
     pub mode: String,
     pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteInfo {
+    pub name: String,
+    pub url: String,
 }

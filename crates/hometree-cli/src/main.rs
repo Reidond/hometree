@@ -131,6 +131,11 @@ enum Commands {
         #[command(subcommand)]
         command: SecretCommand,
     },
+    /// Manage git remotes
+    Remote {
+        #[command(subcommand)]
+        command: RemoteCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -170,6 +175,39 @@ enum SecretCommand {
     },
     /// Re-encrypt secrets with current recipients
     Rekey,
+}
+
+#[derive(Subcommand)]
+enum RemoteCommand {
+    /// Add a remote repository
+    Add {
+        /// Remote name (e.g., origin)
+        #[arg(required = true)]
+        name: String,
+        /// Remote URL (e.g., git@github.com:user/dotfiles.git)
+        #[arg(required = true)]
+        url: String,
+    },
+    /// Remove a remote repository
+    Remove {
+        /// Remote name to remove
+        #[arg(required = true)]
+        name: String,
+    },
+    /// List configured remotes
+    List,
+    /// Push to a remote repository
+    Push {
+        /// Remote name (default: origin)
+        #[arg(default_value = "origin")]
+        remote: String,
+        /// Branch or refspec to push
+        #[arg(short, long)]
+        branch: Option<String>,
+        /// Set upstream tracking reference
+        #[arg(short = 'u', long)]
+        set_upstream: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -213,6 +251,7 @@ fn main() -> Result<()> {
             show_paths,
         } => run_verify(&overrides, rev, strict, with_secrets, json, show_paths),
         Commands::Secret { command } => run_secret(&overrides, command),
+        Commands::Remote { command } => run_remote(&overrides, command),
     }
 }
 
@@ -896,6 +935,77 @@ fn run_secret_rekey(overrides: &Overrides) -> Result<()> {
     }
 
     println!("rekeyed {} secret(s)", to_stage.len());
+    Ok(())
+}
+
+fn run_remote(overrides: &Overrides, command: RemoteCommand) -> Result<()> {
+    match command {
+        RemoteCommand::Add { name, url } => run_remote_add(overrides, name, url),
+        RemoteCommand::Remove { name } => run_remote_remove(overrides, name),
+        RemoteCommand::List => run_remote_list(overrides),
+        RemoteCommand::Push {
+            remote,
+            branch,
+            set_upstream,
+        } => run_remote_push(overrides, remote, branch, set_upstream),
+    }
+}
+
+fn run_remote_add(overrides: &Overrides, name: String, url: String) -> Result<()> {
+    let (_paths, config) = load_config(overrides)?;
+    let git = GitCliBackend::new();
+    git.remote_add(&config.repo.git_dir, &config.repo.work_tree, &name, &url)
+        .context("git remote add")?;
+    println!("remote '{}' added", name);
+    Ok(())
+}
+
+fn run_remote_remove(overrides: &Overrides, name: String) -> Result<()> {
+    let (_paths, config) = load_config(overrides)?;
+    let git = GitCliBackend::new();
+    git.remote_remove(&config.repo.git_dir, &config.repo.work_tree, &name)
+        .context("git remote remove")?;
+    println!("remote '{}' removed", name);
+    Ok(())
+}
+
+fn run_remote_list(overrides: &Overrides) -> Result<()> {
+    let (_paths, config) = load_config(overrides)?;
+    let git = GitCliBackend::new();
+    let remotes = git
+        .remote_list(&config.repo.git_dir, &config.repo.work_tree)
+        .context("git remote list")?;
+    if remotes.is_empty() {
+        println!("no remotes configured");
+    } else {
+        for remote in remotes {
+            println!("{}\t{}", remote.name, remote.url);
+        }
+    }
+    Ok(())
+}
+
+fn run_remote_push(
+    overrides: &Overrides,
+    remote: String,
+    branch: Option<String>,
+    set_upstream: bool,
+) -> Result<()> {
+    let (_paths, config) = load_config(overrides)?;
+    let git = GitCliBackend::new();
+    let output = git
+        .push(
+            &config.repo.git_dir,
+            &config.repo.work_tree,
+            &remote,
+            branch.as_deref(),
+            set_upstream,
+        )
+        .context("git push")?;
+    if !output.is_empty() {
+        print!("{output}");
+    }
+    println!("pushed to '{}'", remote);
     Ok(())
 }
 

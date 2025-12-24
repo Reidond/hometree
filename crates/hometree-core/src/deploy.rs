@@ -677,6 +677,39 @@ mod tests {
         ) -> Result<String> {
             unimplemented!()
         }
+
+        fn remote_add(
+            &self,
+            _git_dir: &Path,
+            _work_tree: &Path,
+            _name: &str,
+            _url: &str,
+        ) -> Result<()> {
+            unimplemented!()
+        }
+
+        fn remote_remove(&self, _git_dir: &Path, _work_tree: &Path, _name: &str) -> Result<()> {
+            unimplemented!()
+        }
+
+        fn remote_list(
+            &self,
+            _git_dir: &Path,
+            _work_tree: &Path,
+        ) -> Result<Vec<crate::git::RemoteInfo>> {
+            unimplemented!()
+        }
+
+        fn push(
+            &self,
+            _git_dir: &Path,
+            _work_tree: &Path,
+            _remote: &str,
+            _refspec: Option<&str>,
+            _set_upstream: bool,
+        ) -> Result<String> {
+            unimplemented!()
+        }
     }
 
     #[test]

@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::backend::{
-    AddMode, BranchInfo, FileStatus, GitBackend, GitError, GitResult, StatusCode, TreeEntry,
+    AddMode, BranchInfo, FileStatus, GitBackend, GitError, GitResult, RemoteInfo, StatusCode,
+    TreeEntry,
 };
 
 #[derive(Debug, Default, Clone)]
@@ -292,6 +293,55 @@ impl GitBackend for GitCliBackend {
 
     fn get_commit_info(&self, git_dir: &Path, work_tree: &Path, rev: &str) -> GitResult<String> {
         self.run_command(git_dir, work_tree, &["log", "-1", "--oneline", rev])
+    }
+
+    fn remote_add(&self, git_dir: &Path, work_tree: &Path, name: &str, url: &str) -> GitResult<()> {
+        self.run_command(git_dir, work_tree, &["remote", "add", name, url])?;
+        Ok(())
+    }
+
+    fn remote_remove(&self, git_dir: &Path, work_tree: &Path, name: &str) -> GitResult<()> {
+        self.run_command(git_dir, work_tree, &["remote", "remove", name])?;
+        Ok(())
+    }
+
+    fn remote_list(&self, git_dir: &Path, work_tree: &Path) -> GitResult<Vec<RemoteInfo>> {
+        let output = self.run_command(git_dir, work_tree, &["remote", "-v"])?;
+        let mut remotes = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        for line in output.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let name = parts[0].to_string();
+                let url = parts[1].to_string();
+                // remote -v shows each remote twice (fetch and push), dedupe by name
+                if seen.insert(name.clone()) {
+                    remotes.push(RemoteInfo { name, url });
+                }
+            }
+        }
+
+        Ok(remotes)
+    }
+
+    fn push(
+        &self,
+        git_dir: &Path,
+        work_tree: &Path,
+        remote: &str,
+        refspec: Option<&str>,
+        set_upstream: bool,
+    ) -> GitResult<String> {
+        let mut args = vec!["push".to_string()];
+        if set_upstream {
+            args.push("-u".to_string());
+        }
+        args.push(remote.to_string());
+        if let Some(spec) = refspec {
+            args.push(spec.to_string());
+        }
+        self.run_command_owned(git_dir, work_tree, &args)
     }
 }
 
