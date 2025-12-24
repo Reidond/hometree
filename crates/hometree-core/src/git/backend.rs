@@ -120,6 +120,8 @@ pub trait GitBackend {
         refspec: Option<&str>,
         set_upstream: bool,
     ) -> GitResult<String>;
+
+    fn pull(&self, git_dir: &Path, work_tree: &Path, remote: &str) -> GitResult<String>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

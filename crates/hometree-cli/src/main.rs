@@ -39,7 +39,14 @@ struct Overrides {
 #[derive(Subcommand)]
 enum Commands {
     /// Initialize hometree state and config
-    Init,
+    Init {
+        /// Clone from existing remote repository
+        #[arg(long)]
+        from: Option<String>,
+        /// Automatically deploy after cloning from remote
+        #[arg(long, requires = "from")]
+        deploy: bool,
+    },
     /// Show status of managed files
     Status,
     /// Track paths (adds to managed set when allowed)
@@ -136,6 +143,15 @@ enum Commands {
         #[command(subcommand)]
         command: RemoteCommand,
     },
+    /// Pull from remote and deploy changes
+    Sync {
+        /// Remote name (default: origin)
+        #[arg(default_value = "origin")]
+        remote: String,
+        /// Skip deployment, only pull
+        #[arg(long)]
+        no_deploy: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -222,7 +238,7 @@ fn main() -> Result<()> {
         xdg_root,
     };
     match command {
-        Commands::Init => run_init(&overrides),
+        Commands::Init { from, deploy } => run_init(&overrides, from, deploy),
         Commands::Status => run_status(&overrides),
         Commands::Track {
             paths,
@@ -252,6 +268,7 @@ fn main() -> Result<()> {
         } => run_verify(&overrides, rev, strict, with_secrets, json, show_paths),
         Commands::Secret { command } => run_secret(&overrides, command),
         Commands::Remote { command } => run_remote(&overrides, command),
+        Commands::Sync { remote, no_deploy } => run_sync(&overrides, remote, no_deploy),
     }
 }
 
@@ -300,31 +317,55 @@ fn init_tracing() {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 
-fn run_init(overrides: &Overrides) -> Result<()> {
+fn run_init(overrides: &Overrides, from: Option<String>, auto_deploy: bool) -> Result<()> {
     let paths = load_paths(overrides).context("resolve XDG paths")?;
 
     std::fs::create_dir_all(paths.config_dir()).context("create config dir")?;
     std::fs::create_dir_all(paths.data_dir()).context("create data dir")?;
     std::fs::create_dir_all(paths.state_dir()).context("create state dir")?;
 
-    let config_path = paths.config_file();
-    if !config_path.exists() {
-        let cfg = Config::default_with_paths(&paths);
-        cfg.write_to(&config_path).context("write default config")?;
-        info!(path = %config_path.display(), "wrote config");
-    } else {
-        info!(path = %config_path.display(), "config exists; leaving unchanged");
-    }
-
     let repo_dir = paths.repo_dir();
-    if !repo_dir.exists() {
-        init_bare_repo(&repo_dir).context("init bare repo")?;
-        info!(path = %repo_dir.display(), "initialized bare repo");
+    let git = GitCliBackend::new();
+
+    if let Some(url) = from {
+        if repo_dir.exists() {
+            return Err(anyhow!("repo already exists at {}; remove it first to clone from remote", repo_dir.display()));
+        }
+        clone_bare_repo(&url, &repo_dir).context("clone bare repo")?;
+        info!(path = %repo_dir.display(), "cloned bare repo from {}", url);
+
+        let config_path = paths.config_file();
+        if !config_path.exists() {
+            if let Ok(config_bytes) = git.show_blob(&repo_dir, paths.home_dir(), "HEAD", Path::new(".config/hometree/config.toml")) {
+                if let Some(parent) = config_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&config_path, config_bytes)?;
+                info!(path = %config_path.display(), "extracted config from repo");
+            } else {
+                let cfg = Config::default_with_paths(&paths);
+                cfg.write_to(&config_path).context("write default config")?;
+                info!(path = %config_path.display(), "wrote default config (none found in repo)");
+            }
+        }
     } else {
-        info!(path = %repo_dir.display(), "repo exists; leaving unchanged");
+        let config_path = paths.config_file();
+        if !config_path.exists() {
+            let cfg = Config::default_with_paths(&paths);
+            cfg.write_to(&config_path).context("write default config")?;
+            info!(path = %config_path.display(), "wrote config");
+        } else {
+            info!(path = %config_path.display(), "config exists; leaving unchanged");
+        }
+
+        if !repo_dir.exists() {
+            init_bare_repo(&repo_dir).context("init bare repo")?;
+            info!(path = %repo_dir.display(), "initialized bare repo");
+        } else {
+            info!(path = %repo_dir.display(), "repo exists; leaving unchanged");
+        }
     }
 
-    let git = GitCliBackend::new();
     if git.is_repository(&repo_dir) {
         let _ = git.config_set(
             &repo_dir,
@@ -335,6 +376,21 @@ fn run_init(overrides: &Overrides) -> Result<()> {
     }
 
     println!("hometree initialized.");
+
+    if auto_deploy {
+        println!("deploying HEAD...");
+        let config = Config::load_from(&paths.config_file()).context("load config")?;
+        let entry = deploy_with_options(
+            &config,
+            &paths,
+            &git,
+            "HEAD",
+            hometree_core::DeployOptions { no_backup: false },
+        )
+        .context("deploy")?;
+        println!("deployed {}", entry.rev);
+    }
+
     Ok(())
 }
 
@@ -1009,6 +1065,36 @@ fn run_remote_push(
     Ok(())
 }
 
+fn run_sync(overrides: &Overrides, remote: String, no_deploy: bool) -> Result<()> {
+    let (paths, config) = load_config(overrides)?;
+    let git = GitCliBackend::new();
+
+    println!("pulling from '{}'...", remote);
+    let output = git
+        .pull(&config.repo.git_dir, &config.repo.work_tree, &remote)
+        .context("git pull")?;
+    if !output.is_empty() {
+        print!("{output}");
+    }
+
+    if no_deploy {
+        println!("pulled (deploy skipped)");
+        return Ok(());
+    }
+
+    println!("deploying HEAD...");
+    let entry = deploy_with_options(
+        &config,
+        &paths,
+        &git,
+        "HEAD",
+        hometree_core::DeployOptions { no_backup: false },
+    )
+    .context("deploy")?;
+    println!("synced to {}", entry.rev);
+    Ok(())
+}
+
 fn load_paths(overrides: &Overrides) -> Result<Paths> {
     Paths::new_with_overrides(
         overrides.home_root.as_deref(),
@@ -1163,6 +1249,20 @@ fn init_bare_repo(path: &Path) -> Result<()> {
         .context("run git init --bare")?;
     if !status.success() {
         return Err(anyhow!("git init --bare failed"));
+    }
+    Ok(())
+}
+
+fn clone_bare_repo(url: &str, path: &Path) -> Result<()> {
+    let status = Command::new("git")
+        .arg("clone")
+        .arg("--bare")
+        .arg(url)
+        .arg(path)
+        .status()
+        .context("run git clone --bare")?;
+    if !status.success() {
+        return Err(anyhow!("git clone --bare failed"));
     }
     Ok(())
 }

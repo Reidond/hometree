@@ -343,6 +343,10 @@ impl GitBackend for GitCliBackend {
         }
         self.run_command_owned(git_dir, work_tree, &args)
     }
+
+    fn pull(&self, git_dir: &Path, work_tree: &Path, remote: &str) -> GitResult<String> {
+        self.run_command(git_dir, work_tree, &["pull", remote])
+    }
 }
 
 fn parse_status_code(c: char) -> StatusCode {

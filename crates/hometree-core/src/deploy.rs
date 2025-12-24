@@ -710,6 +710,10 @@ mod tests {
         ) -> Result<String> {
             unimplemented!()
         }
+
+        fn pull(&self, _git_dir: &Path, _work_tree: &Path, _remote: &str) -> Result<String> {
+            unimplemented!()
+        }
     }
 
     #[test]

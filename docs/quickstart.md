@@ -88,6 +88,24 @@ For subsequent pushes:
 hometree remote push
 ```
 
+## Setup on a new machine
+
+If you already have dotfiles in a remote repo, setup is a single command:
+
+```bash
+hometree init --from git@github.com:YOUR_USER/dotfiles.git --deploy
+```
+
+This clones the repo, extracts your config, and deploys all files to `$HOME`.
+
+Or step by step:
+
+```bash
+hometree init --from git@github.com:YOUR_USER/dotfiles.git
+hometree plan deploy HEAD   # preview changes
+hometree deploy HEAD        # apply
+```
+
 ## 7) Encrypt secrets with age (optional)
 
 hometree uses [age](https://age-encryption.org/) encryption to keep sensitive files out of git history.

@@ -23,8 +23,12 @@ Reference for every hometree command, flag, and safety default. Examples are cop
 ### init
 ```
 hometree init
+hometree init --from <repo-url>
+hometree init --from <repo-url> --deploy
 ```
 - Creates config/data/state dirs, writes default `config.toml` if missing, and initializes the bare git repo. Idempotent.
+- `--from <url>`: clones an existing remote repo instead of creating empty one. Extracts config from the repo if present.
+- `--deploy`: automatically deploys HEAD after cloning (requires `--from`).
 - Sets `status.showUntrackedFiles=no` in the repo to keep `git status` lean.
 
 ### status
@@ -138,6 +142,14 @@ hometree remote push [remote] [-b branch] [-u]
 - `remove`: removes a configured remote.
 - `list`: shows all configured remotes with their URLs.
 - `push`: pushes to a remote (default: `origin`). Use `-b` to specify a branch, `-u` to set upstream tracking.
+
+### sync
+```
+hometree sync [remote] [--no-deploy]
+```
+- Pulls from remote (default: `origin`) and deploys HEAD.
+- `--no-deploy`: only pull, skip deployment.
+- Use this to get and apply changes from another machine.
 
 ## Examples
 ```bash
