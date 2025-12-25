@@ -1243,21 +1243,6 @@ fn ensure_git_excludes(paths: &Paths, config: &Config) -> Result<()> {
         }
     }
 
-    // Standard sensitive directories (mirrors default ignore patterns).
-    let default_excludes = [
-        ".ssh/**",
-        ".gnupg/**",
-        ".local/share/keyrings/**",
-        ".local/share/kwalletd/**",
-        ".pki/**",
-        ".mozilla/**",
-        ".config/google-chrome/**",
-        ".config/chromium/**",
-        ".config/BraveSoftware/**",
-    ];
-    for pattern in default_excludes {
-        existing.insert(pattern.to_string());
-    }
     for rule in &config.secrets.rules {
         if !rule.path.trim().is_empty() {
             existing.insert(rule.path.clone());
