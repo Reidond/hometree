@@ -80,6 +80,13 @@ pub trait GitBackend {
 
     fn log(&self, git_dir: &Path, work_tree: &Path, limit: Option<usize>) -> GitResult<String>;
 
+    fn log_detailed(
+        &self,
+        git_dir: &Path,
+        work_tree: &Path,
+        limit: Option<usize>,
+    ) -> GitResult<Vec<LogEntry>>;
+
     fn rev_parse(&self, git_dir: &Path, work_tree: &Path, rev: &str) -> GitResult<String>;
 
     fn ls_tree(&self, git_dir: &Path, work_tree: &Path, rev: &str) -> GitResult<Vec<String>>;
@@ -135,4 +142,29 @@ pub struct TreeEntry {
 pub struct RemoteInfo {
     pub name: String,
     pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogEntry {
+    pub hash: String,
+    pub date: String,
+    pub message: String,
+    pub files: Vec<FileChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileChange {
+    pub status: FileChangeStatus,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileChangeStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    Copied,
+    TypeChanged,
+    Unknown,
 }

@@ -6,7 +6,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use hometree_cli::track::decide_track;
 use hometree_cli::watch::root_to_pathspec;
-use hometree_core::git::{AddMode, GitBackend, GitCliBackend};
+use hometree_core::git::{AddMode, FileChangeStatus, GitBackend, GitCliBackend};
 use hometree_core::secrets::{AgeBackend, SecretsBackend, SecretsManager};
 use hometree_core::{
     deploy_with_options, plan_deploy, read_generations, rollback, verify, Config, ManagedSet, Paths,
@@ -617,10 +617,50 @@ fn guard_snapshot_secrets(config: &Config, git: &GitCliBackend) -> Result<()> {
 fn run_log(overrides: &Overrides, limit: Option<usize>) -> Result<()> {
     let (_paths, config) = load_config(overrides)?;
     let git = GitCliBackend::new();
-    let output = git
-        .log(&config.repo.git_dir, &config.repo.work_tree, limit)
+    let entries = git
+        .log_detailed(&config.repo.git_dir, &config.repo.work_tree, limit)
         .context("git log")?;
-    print!("{output}");
+
+    if entries.is_empty() {
+        println!("no commits");
+        return Ok(());
+    }
+
+    let use_color = std::io::IsTerminal::is_terminal(&std::io::stdout());
+
+    for entry in entries {
+        if use_color {
+            println!(
+                "\x1b[33m{}\x1b[0m  \x1b[2m{}\x1b[0m  {}",
+                entry.hash, entry.date, entry.message
+            );
+        } else {
+            println!("{}  {}  {}", entry.hash, entry.date, entry.message);
+        }
+
+        for file in &entry.files {
+            let (status_char, color) = match file.status {
+                FileChangeStatus::Added => ('A', "\x1b[32m"),
+                FileChangeStatus::Modified => ('M', "\x1b[34m"),
+                FileChangeStatus::Deleted => ('D', "\x1b[31m"),
+                FileChangeStatus::Renamed => ('R', "\x1b[35m"),
+                FileChangeStatus::Copied => ('C', "\x1b[36m"),
+                FileChangeStatus::TypeChanged => ('T', "\x1b[33m"),
+                FileChangeStatus::Unknown => ('?', "\x1b[0m"),
+            };
+
+            if use_color {
+                println!("    {color}{status_char}\x1b[0m  {}", file.path);
+            } else {
+                println!("    {status_char}  {}", file.path);
+            }
+        }
+
+        if !entry.files.is_empty() {
+            println!();
+        }
+    }
+
     Ok(())
 }
 

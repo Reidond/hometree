@@ -2,9 +2,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::backend::{
-    AddMode, BranchInfo, FileStatus, GitBackend, GitError, GitResult, RemoteInfo, StatusCode,
-    TreeEntry,
+    AddMode, BranchInfo, FileChange, FileChangeStatus, FileStatus, GitBackend, GitError, GitResult,
+    LogEntry, RemoteInfo, StatusCode, TreeEntry,
 };
+
+const FIELD_DELIM: &str = "\x1e";
+const COMMIT_DELIM: &str = "\x1f";
 
 #[derive(Debug, Default, Clone)]
 pub struct GitCliBackend;
@@ -227,6 +230,31 @@ impl GitBackend for GitCliBackend {
             args.push(limit.to_string());
         }
         self.run_command_owned(git_dir, work_tree, &args)
+    }
+
+    fn log_detailed(
+        &self,
+        git_dir: &Path,
+        work_tree: &Path,
+        limit: Option<usize>,
+    ) -> GitResult<Vec<LogEntry>> {
+        let format = format!(
+            "--format={COMMIT_DELIM}%h{FIELD_DELIM}%ad{FIELD_DELIM}%s"
+        );
+
+        let mut args = vec![
+            "log".to_string(),
+            format,
+            "--date=short".to_string(),
+            "--name-status".to_string(),
+        ];
+        if let Some(limit) = limit {
+            args.push("-n".to_string());
+            args.push(limit.to_string());
+        }
+
+        let output = self.run_command_owned(git_dir, work_tree, &args)?;
+        parse_detailed_log(&output)
     }
 
     fn rev_parse(&self, git_dir: &Path, work_tree: &Path, rev: &str) -> GitResult<String> {
@@ -465,6 +493,71 @@ fn parse_status_code(c: char) -> StatusCode {
         '!' => StatusCode::Ignored,
         _ => StatusCode::Unmodified,
     }
+}
+
+fn parse_file_change_status(s: &str) -> FileChangeStatus {
+    match s.chars().next() {
+        Some('A') => FileChangeStatus::Added,
+        Some('M') => FileChangeStatus::Modified,
+        Some('D') => FileChangeStatus::Deleted,
+        Some('R') => FileChangeStatus::Renamed,
+        Some('C') => FileChangeStatus::Copied,
+        Some('T') => FileChangeStatus::TypeChanged,
+        _ => FileChangeStatus::Unknown,
+    }
+}
+
+fn parse_detailed_log(output: &str) -> GitResult<Vec<LogEntry>> {
+    let mut entries = Vec::new();
+
+    for commit_block in output.split(COMMIT_DELIM) {
+        if commit_block.trim().is_empty() {
+            continue;
+        }
+
+        let mut lines = commit_block.lines();
+        let header = match lines.next() {
+            Some(h) => h,
+            None => continue,
+        };
+
+        let parts: Vec<&str> = header.split(FIELD_DELIM).collect();
+        if parts.len() < 3 {
+            continue;
+        }
+
+        let hash = parts[0].to_string();
+        let date = parts[1].to_string();
+        let message = parts[2].to_string();
+
+        let mut files = Vec::new();
+        for line in lines {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let mut parts = line.splitn(2, '\t');
+            let status_str = parts.next().unwrap_or("");
+            let path = parts.next().unwrap_or("").to_string();
+
+            if !path.is_empty() {
+                files.push(FileChange {
+                    status: parse_file_change_status(status_str),
+                    path,
+                });
+            }
+        }
+
+        entries.push(LogEntry {
+            hash,
+            date,
+            message,
+            files,
+        });
+    }
+
+    Ok(entries)
 }
 
 fn parse_status_entry(line: &str) -> GitResult<Option<FileStatus>> {

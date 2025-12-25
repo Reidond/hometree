@@ -626,6 +626,15 @@ mod tests {
             unimplemented!()
         }
 
+        fn log_detailed(
+            &self,
+            _git_dir: &Path,
+            _work_tree: &Path,
+            _limit: Option<usize>,
+        ) -> Result<Vec<crate::git::LogEntry>> {
+            unimplemented!()
+        }
+
         fn rev_parse(&self, _git_dir: &Path, _work_tree: &Path, _rev: &str) -> Result<String> {
             unimplemented!()
         }

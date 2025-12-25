@@ -2,7 +2,7 @@ mod backend;
 mod cli;
 
 pub use backend::{
-    AddMode, BranchInfo, FileStatus, GitBackend, GitError, GitResult, RemoteInfo, StatusCode,
-    TreeEntry,
+    AddMode, BranchInfo, FileChange, FileChangeStatus, FileStatus, GitBackend, GitError, GitResult,
+    LogEntry, RemoteInfo, StatusCode, TreeEntry,
 };
 pub use cli::GitCliBackend;
