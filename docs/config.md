@@ -20,8 +20,7 @@ git_dir = "/home/user/.local/share/hometree/repo.git"
 work_tree = "/home/user"
 
 [manage]
-roots = [".config/", ".local/bin/"]
-extra_files = []
+paths = [".config/", ".local/bin/", ".zshrc"]
 
 [ignore]
 patterns = [".ssh/**", "**/*secret*"]
@@ -62,9 +61,16 @@ mode = 0o600
 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `roots` | array of relative paths | `[".config/", ".local/bin/", ".local/share/systemd/user/", ".local/share/applications/"]` | Managed directories (relative to `work_tree`). Trailing `/` is allowed. |
-| `extra_files` | array of relative paths | `[]` | Individual files to manage outside the roots list. |
-| `allow_outside` | bool | `true` | Allow tracking files outside managed roots without `--allow-outside` flag. |
+| `paths` | array of relative paths | `[".config/", ".local/bin/", ".local/share/systemd/user/", ".local/share/applications/"]` | Managed paths (directories or files) relative to `work_tree`. Directories are auto-detected and normalized with `/**` suffix. |
+
+Paths are automatically normalized:
+- Directories (trailing `/` or no file extension) become glob patterns: `.config/` → `.config/**`
+- Individual files are matched exactly: `.zshrc` → `.zshrc`
+
+**Legacy fields** (deprecated, auto-migrated):
+- `roots` - merged into `paths` on load
+- `extra_files` - merged into `paths` on load
+- `allow_outside` - no longer needed (all paths can be tracked)
 
 ### [ignore]
 
@@ -95,7 +101,7 @@ Default ignore patterns:
 | `enabled` | bool | `false` | Enables the foreground watcher. |
 | `debounce_ms` | integer (ms) | `500` | Debounce window for filesystem events. |
 | `auto_stage_tracked_only` | bool | `true` | If true, watcher stages only paths already tracked. |
-| `auto_add_new` | bool | `false` | If true, watcher may add new files under managed roots/extra_files when allowlist matches. |
+| `auto_add_new` | bool | `false` | If true, watcher may add new files under managed paths when allowlist matches. |
 | `auto_add_allow_patterns` | array of glob patterns | `[]` | Allowlist for auto-add; ignored when `auto_add_new` is false. |
 
 Auto-add validation rules:

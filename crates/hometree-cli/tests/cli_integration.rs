@@ -3,7 +3,6 @@ use assert_cmd::prelude::*;
 use hometree_core::read_generations;
 use hometree_core::{config::BackupPolicy, Config};
 use predicates::str::contains;
-use predicates::Predicate;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -441,7 +440,7 @@ fn plan_deploy_outputs_expected_actions() {
 }
 
 #[test]
-fn untrack_removes_from_extra_files() {
+fn untrack_removes_from_paths() {
     let temp = TempDir::new().unwrap();
     let (home, config, _data, _state) = base_env(&temp);
 
@@ -449,20 +448,23 @@ fn untrack_removes_from_extra_files() {
     fs::write(&dotfile, "ok").unwrap();
 
     cmd(&temp).arg("init").assert().success();
+
+    let cfg_before = fs::read_to_string(config.join("hometree/config.toml")).unwrap();
+    assert!(!cfg_before.contains(".gitconfig"));
+
     cmd(&temp)
-        .args([
-            "track",
-            dotfile.to_string_lossy().as_ref(),
-            "--allow-outside",
-        ])
+        .args(["track", dotfile.to_string_lossy().as_ref()])
         .assert()
         .success();
+
+    let cfg_after_track = fs::read_to_string(config.join("hometree/config.toml")).unwrap();
+    assert!(cfg_after_track.contains(".gitconfig"));
 
     cmd(&temp)
         .args(["untrack", dotfile.to_string_lossy().as_ref()])
         .assert()
         .success();
 
-    let cfg = fs::read_to_string(config.join("hometree/config.toml")).unwrap();
-    assert!(contains("extra_files = []").eval(&cfg));
+    let cfg_after_untrack = fs::read_to_string(config.join("hometree/config.toml")).unwrap();
+    assert!(!cfg_after_untrack.contains(".gitconfig"));
 }

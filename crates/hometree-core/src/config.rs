@@ -25,14 +25,25 @@ pub struct RepoConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManageConfig {
+    #[serde(default)]
+    pub paths: Vec<String>,
+
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roots: Vec<String>,
+
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra_files: Vec<String>,
-    #[serde(default = "default_allow_outside")]
+
+    #[serde(default = "default_allow_outside", skip_serializing_if = "is_true")]
     pub allow_outside: bool,
 }
 
 fn default_allow_outside() -> bool {
     true
+}
+
+fn is_true(v: &bool) -> bool {
+    *v
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,19 +110,20 @@ impl Default for SecretsConfig {
 }
 
 impl Config {
-    pub fn default_with_paths(paths: &Paths) -> Self {
+    pub fn default_with_paths(paths_ctx: &Paths) -> Self {
         Self {
             repo: RepoConfig {
-                git_dir: paths.repo_dir(),
-                work_tree: paths.home_dir().to_path_buf(),
+                git_dir: paths_ctx.repo_dir(),
+                work_tree: paths_ctx.home_dir().to_path_buf(),
             },
             manage: ManageConfig {
-                roots: vec![
+                paths: vec![
                     ".config/".to_string(),
                     ".local/bin/".to_string(),
                     ".local/share/systemd/user/".to_string(),
                     ".local/share/applications/".to_string(),
                 ],
+                roots: Vec::new(),
                 extra_files: Vec::new(),
                 allow_outside: true,
             },
@@ -156,9 +168,21 @@ impl Config {
     pub fn load_from(path: &Path) -> Result<Self> {
         let contents = fs::read_to_string(path)?;
         let mut config: Self = toml::from_str(&contents)?;
+        config.migrate_legacy_manage_fields();
         config.apply_secrets_defaults();
         config.validate()?;
         Ok(config)
+    }
+
+    fn migrate_legacy_manage_fields(&mut self) {
+        if self.manage.paths.is_empty()
+            && (!self.manage.roots.is_empty() || !self.manage.extra_files.is_empty())
+        {
+            let mut migrated: Vec<String> = Vec::new();
+            migrated.extend(self.manage.roots.drain(..));
+            migrated.extend(self.manage.extra_files.drain(..));
+            self.manage.paths = migrated;
+        }
     }
 
     fn validate(&self) -> Result<()> {
@@ -259,7 +283,7 @@ mod tests {
         let cfg = Config::default_with_paths(&paths);
         assert_eq!(cfg.repo.git_dir, paths.repo_dir());
         assert_eq!(cfg.repo.work_tree, paths.home_dir());
-        assert!(!cfg.manage.roots.is_empty());
+        assert!(!cfg.manage.paths.is_empty());
         assert!(!cfg.ignore.patterns.is_empty());
     }
 

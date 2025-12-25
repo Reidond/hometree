@@ -1,6 +1,6 @@
 [package]
 name = "hometree-cli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -28,4 +28,4 @@ path = "src/lib.rs"
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
-age = "0.10"
+age = "0.11"

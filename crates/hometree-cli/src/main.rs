@@ -53,9 +53,6 @@ enum Commands {
     Track {
         #[arg(required = true)]
         paths: Vec<PathBuf>,
-        /// Allow tracking paths outside managed roots
-        #[arg(long)]
-        allow_outside: bool,
         /// Force tracking even if ignored/denylisted
         #[arg(long)]
         force: bool,
@@ -240,11 +237,7 @@ fn main() -> Result<()> {
     match command {
         Commands::Init { from, deploy } => run_init(&overrides, from, deploy),
         Commands::Status => run_status(&overrides),
-        Commands::Track {
-            paths,
-            allow_outside,
-            force,
-        } => run_track(&overrides, paths, allow_outside, force),
+        Commands::Track { paths, force } => run_track(&overrides, paths, force),
         Commands::Untrack { paths } => run_untrack(&overrides, paths),
         Commands::Snapshot { message, auto } => run_snapshot(&overrides, message, auto),
         Commands::Log { limit } => run_log(&overrides, limit),
@@ -433,19 +426,14 @@ fn run_status(overrides: &Overrides) -> Result<()> {
     Ok(())
 }
 
-fn run_track(
-    overrides: &Overrides,
-    paths: Vec<PathBuf>,
-    allow_outside: bool,
-    force: bool,
-) -> Result<()> {
+fn run_track(overrides: &Overrides, paths: Vec<PathBuf>, force: bool) -> Result<()> {
     let (paths_ctx, mut config) = load_config(overrides)?;
     let managed = ManagedSet::from_config(&config).context("build managed set")?;
     let home_dir = paths_ctx.home_dir();
     let secrets = SecretsManager::from_config(&config.secrets);
 
     let mut to_stage: Vec<PathBuf> = Vec::new();
-    let mut extra_files_changed = false;
+    let mut paths_changed = false;
 
     for input in paths {
         if secrets.enabled() {
@@ -456,27 +444,20 @@ fn run_track(
                 ));
             }
         }
-        let decision = decide_track(
-            &input,
-            home_dir,
-            &managed,
-            &config.manage.roots,
-            config.manage.allow_outside || allow_outside,
-            force,
-        )?;
+        let decision = decide_track(&input, home_dir, &managed, force)?;
 
-        if decision.add_to_extra_files {
+        if decision.add_to_paths {
             let rel_str = decision.rel_path.to_string_lossy().to_string();
-            if !config.manage.extra_files.contains(&rel_str) {
-                config.manage.extra_files.push(rel_str);
-                extra_files_changed = true;
+            if !config.manage.paths.contains(&rel_str) {
+                config.manage.paths.push(rel_str);
+                paths_changed = true;
             }
         }
 
         to_stage.push(decision.rel_path);
     }
 
-    if extra_files_changed {
+    if paths_changed {
         let config_path = paths_ctx.config_file();
         config
             .write_to(&config_path)
@@ -512,8 +493,8 @@ fn run_untrack(overrides: &Overrides, paths: Vec<PathBuf>) -> Result<()> {
             return Err(anyhow!("path is a secret; use `hometree secret add`"));
         }
         let rel_str = rel.to_string_lossy().to_string();
-        if let Some(pos) = config.manage.extra_files.iter().position(|p| p == &rel_str) {
-            config.manage.extra_files.remove(pos);
+        if let Some(pos) = config.manage.paths.iter().position(|p| p == &rel_str) {
+            config.manage.paths.remove(pos);
             changed = true;
         } else if managed.is_managed(&rel) {
             let ignore = ignore_pattern_for(&rel, home_dir);
@@ -583,25 +564,19 @@ fn run_snapshot(overrides: &Overrides, message: Option<String>, auto: bool) -> R
 }
 
 fn collect_managed_paths(config: &Config) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
+    let mut paths_out = Vec::new();
     let work_tree = &config.repo.work_tree;
-    for root in &config.manage.roots {
-        let normalized = root
+    for entry in &config.manage.paths {
+        let normalized = entry
             .trim_start_matches("./")
             .trim_end_matches("/**")
             .trim_end_matches('/');
         let abs_path = work_tree.join(normalized);
         if abs_path.exists() {
-            paths.push(PathBuf::from(normalized));
+            paths_out.push(PathBuf::from(normalized));
         }
     }
-    for extra in &config.manage.extra_files {
-        let abs_path = work_tree.join(extra);
-        if abs_path.exists() {
-            paths.push(PathBuf::from(extra));
-        }
-    }
-    paths
+    paths_out
 }
 
 fn guard_snapshot_secrets(config: &Config, git: &GitCliBackend) -> Result<()> {
@@ -1215,15 +1190,10 @@ fn ensure_git_excludes(paths: &Paths, config: &Config) -> Result<()> {
 
 fn status_paths(config: &Config) -> Vec<PathBuf> {
     let mut set = BTreeSet::new();
-    for root in &config.manage.roots {
-        let pathspec = root_to_pathspec(root);
+    for entry in &config.manage.paths {
+        let pathspec = root_to_pathspec(entry);
         if !pathspec.is_empty() {
             set.insert(pathspec);
-        }
-    }
-    for extra in &config.manage.extra_files {
-        if !extra.is_empty() {
-            set.insert(extra.clone());
         }
     }
     set.into_iter().map(PathBuf::from).collect()

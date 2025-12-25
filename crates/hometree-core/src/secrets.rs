@@ -74,14 +74,9 @@ impl AgeBackend {
 impl SecretsBackend for AgeBackend {
     fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
         self.ensure_recipients()?;
-        let recipients: Vec<Box<dyn age::Recipient + Send>> = self
-            .recipients
-            .iter()
-            .cloned()
-            .map(|r| Box::new(r) as Box<dyn age::Recipient + Send>)
-            .collect();
-        let encryptor = Encryptor::with_recipients(recipients)
-            .ok_or_else(|| HometreeError::Config("no recipients configured".to_string()))?;
+        let encryptor =
+            Encryptor::with_recipients(self.recipients.iter().map(|r| r as &dyn age::Recipient))
+                .map_err(|e| HometreeError::Config(format!("age encrypt failed: {e}")))?;
         let mut out = Vec::new();
         let mut writer = encryptor
             .wrap_output(&mut out)
@@ -97,16 +92,13 @@ impl SecretsBackend for AgeBackend {
 
     fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>> {
         self.ensure_identities()?;
-        let decryptor = match Decryptor::new(ciphertext)
-            .map_err(|e| HometreeError::Config(format!("age decrypt failed: {e}")))?
-        {
-            Decryptor::Recipients(decryptor) => decryptor,
-            Decryptor::Passphrase(_) => {
-                return Err(HometreeError::Config(
-                    "passphrase encryption is not supported".to_string(),
-                ))
-            }
-        };
+        let decryptor = Decryptor::new(ciphertext)
+            .map_err(|e| HometreeError::Config(format!("age decrypt failed: {e}")))?;
+        if decryptor.is_scrypt() {
+            return Err(HometreeError::Config(
+                "passphrase encryption is not supported".to_string(),
+            ));
+        }
         let mut reader = decryptor
             .decrypt(self.identities.iter().map(|i| i as &dyn age::Identity))
             .map_err(|e| HometreeError::Config(format!("age decrypt failed: {e}")))?;

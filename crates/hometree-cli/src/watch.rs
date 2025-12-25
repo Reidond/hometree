@@ -13,19 +13,14 @@ pub fn should_handle_event(kind: &EventKind) -> bool {
 
 pub fn watch_paths(config: &Config) -> Vec<PathBuf> {
     let mut set = std::collections::BTreeSet::new();
-    for root in &config.manage.roots {
-        let trimmed = root.trim_start_matches("./");
+    for entry in &config.manage.paths {
+        let trimmed = entry.trim_start_matches("./");
         if trimmed.is_empty() || has_glob_meta(trimmed) {
             continue;
         }
         let path = trimmed.trim_end_matches("/**").trim_end_matches('/');
         if !path.is_empty() {
             set.insert(path.to_string());
-        }
-    }
-    for extra in &config.manage.extra_files {
-        if !extra.is_empty() {
-            set.insert(extra.clone());
         }
     }
     set.into_iter().map(PathBuf::from).collect()

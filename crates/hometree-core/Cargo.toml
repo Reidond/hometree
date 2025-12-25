@@ -1,6 +1,6 @@
 [package]
 name = "hometree-core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
@@ -14,9 +14,9 @@ walkdir = "2"
 fs2 = "0.4"
 filetime = "0.2"
 libc = "0.2"
-age = "0.10"
+age = "0.11"
 time = { version = "0.3", features = ["formatting", "parsing"] }
 
 [dev-dependencies]
 tempfile = "3"
-secrecy = "0.8"
+secrecy = "0.10"

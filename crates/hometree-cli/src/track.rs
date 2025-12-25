@@ -6,15 +6,19 @@ use hometree_core::ManagedSet;
 #[derive(Debug, Clone)]
 pub struct TrackDecision {
     pub rel_path: PathBuf,
-    pub add_to_extra_files: bool,
+    /// Whether the path needs to be added to config.manage.paths
+    pub add_to_paths: bool,
 }
 
+/// Decide whether a path can be tracked and whether it needs to be added to paths.
+///
+/// With the unified `paths` config, any path under $HOME can be tracked.
+/// If the path is already covered by an existing pattern in `paths`, we don't
+/// need to add it again. Otherwise, we add it to `paths`.
 pub fn decide_track(
     input: &Path,
     home_dir: &Path,
     managed: &ManagedSet,
-    roots: &[String],
-    allow_outside: bool,
     force: bool,
 ) -> Result<TrackDecision> {
     let abs = if input.is_absolute() {
@@ -31,61 +35,18 @@ pub fn decide_track(
     if managed.is_managed(&rel) {
         return Ok(TrackDecision {
             rel_path: rel,
-            add_to_extra_files: false,
+            add_to_paths: false,
         });
     }
 
-    let under_roots = is_under_managed_roots(&rel, roots);
-    let allowed = managed.is_allowed(&rel);
-
-    if under_roots {
-        if !allowed && !force {
-            return Err(anyhow!("path is ignored or denylisted: {}", rel.display()));
-        }
-        return Ok(TrackDecision {
-            rel_path: rel,
-            add_to_extra_files: false,
-        });
-    }
-
-    if !allow_outside {
-        return Err(anyhow!(
-            "path is outside managed roots; use --allow-outside to track: {}",
-            rel.display()
-        ));
-    }
-
-    if !allowed && !force {
+    if !managed.is_allowed(&rel) && !force {
         return Err(anyhow!("path is ignored or denylisted: {}", rel.display()));
     }
 
     Ok(TrackDecision {
         rel_path: rel,
-        add_to_extra_files: true,
+        add_to_paths: true,
     })
-}
-
-fn is_under_managed_roots(rel: &Path, roots: &[String]) -> bool {
-    let rel_str = rel.to_string_lossy();
-    for root in roots {
-        let normalized = normalize_root(root);
-        let root_prefix = normalized.trim_end_matches("/**").trim_end_matches('/');
-        if rel_str == root_prefix || rel_str.starts_with(&format!("{}/", root_prefix)) {
-            return true;
-        }
-    }
-    false
-}
-
-fn normalize_root(root: &str) -> String {
-    let trimmed = root.trim_start_matches("./");
-    if trimmed.ends_with("/**") {
-        trimmed.to_string()
-    } else if trimmed.ends_with('/') {
-        format!("{trimmed}**")
-    } else {
-        format!("{trimmed}/**")
-    }
 }
 
 #[cfg(test)]
@@ -94,89 +55,68 @@ mod tests {
     use hometree_core::Config;
     use hometree_core::Paths;
 
-    fn config() -> (Config, ManagedSet, PathBuf) {
+    fn config() -> (ManagedSet, PathBuf) {
         let paths = Paths::new().expect("paths");
         let mut cfg = Config::default_with_paths(&paths);
-        cfg.manage.roots = vec![".config/".to_string()];
-        cfg.manage.extra_files = vec![".zshrc".to_string()];
+        cfg.manage.paths = vec![".config/".to_string(), ".zshrc".to_string()];
         cfg.ignore.patterns = vec![".config/ignored/**".to_string(), ".ssh/**".to_string()];
         let managed = ManagedSet::from_config(&cfg).expect("managed");
-        (cfg, managed, paths.home_dir().to_path_buf())
+        (managed, paths.home_dir().to_path_buf())
     }
 
     #[test]
-    fn track_inside_roots() {
-        let (cfg, managed, home) = config();
+    fn track_inside_managed_paths() {
+        let (managed, home) = config();
         let decision = decide_track(
             Path::new(".config/app/config.toml"),
             &home,
             &managed,
-            &cfg.manage.roots,
-            false,
             false,
         )
         .expect("decision");
         assert_eq!(decision.rel_path, PathBuf::from(".config/app/config.toml"));
-        assert!(!decision.add_to_extra_files);
+        assert!(!decision.add_to_paths);
     }
 
     #[test]
-    fn track_outside_requires_allow() {
-        let (cfg, managed, home) = config();
-        let err = decide_track(
-            Path::new(".vimrc"),
-            &home,
-            &managed,
-            &cfg.manage.roots,
-            false,
-            false,
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("outside managed roots"));
+    fn track_already_managed_file() {
+        let (managed, home) = config();
+        let decision = decide_track(Path::new(".zshrc"), &home, &managed, false).expect("decision");
+        assert_eq!(decision.rel_path, PathBuf::from(".zshrc"));
+        assert!(!decision.add_to_paths);
     }
 
     #[test]
-    fn track_outside_allowed_adds_extra() {
-        let (cfg, managed, home) = config();
-        let decision = decide_track(
-            Path::new(".vimrc"),
-            &home,
-            &managed,
-            &cfg.manage.roots,
-            true,
-            false,
-        )
-        .expect("decision");
-        assert!(decision.add_to_extra_files);
+    fn track_new_file_adds_to_paths() {
+        let (managed, home) = config();
+        let decision =
+            decide_track(Path::new(".vimrc"), &home, &managed, false).expect("decision");
+        assert_eq!(decision.rel_path, PathBuf::from(".vimrc"));
+        assert!(decision.add_to_paths);
     }
 
     #[test]
     fn track_ignored_requires_force() {
-        let (cfg, managed, home) = config();
-        let err = decide_track(
-            Path::new(".config/ignored/file.txt"),
-            &home,
-            &managed,
-            &cfg.manage.roots,
-            false,
-            false,
-        )
-        .unwrap_err();
+        let (managed, home) = config();
+        let err = decide_track(Path::new(".config/ignored/file.txt"), &home, &managed, false)
+            .unwrap_err();
         assert!(err.to_string().contains("ignored"));
     }
 
     #[test]
     fn track_ignored_with_force() {
-        let (cfg, managed, home) = config();
-        let decision = decide_track(
-            Path::new(".config/ignored/file.txt"),
-            &home,
-            &managed,
-            &cfg.manage.roots,
-            false,
-            true,
-        )
-        .expect("decision");
+        let (managed, home) = config();
+        let decision =
+            decide_track(Path::new(".config/ignored/file.txt"), &home, &managed, true)
+                .expect("decision");
         assert_eq!(decision.rel_path, PathBuf::from(".config/ignored/file.txt"));
+        assert!(decision.add_to_paths);
+    }
+
+    #[test]
+    fn track_denylisted_requires_force() {
+        let (managed, home) = config();
+        let err = decide_track(Path::new(".ssh/id_rsa"), &home, &managed, false).unwrap_err();
+        assert!(err.to_string().contains("ignored"));
     }
 }

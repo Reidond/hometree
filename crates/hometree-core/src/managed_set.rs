@@ -3,23 +3,19 @@ use std::path::Path;
 
 use crate::Config;
 
-/// Represents a set of rules for managing paths, including roots, extra files,
-/// ignore patterns, and denylist patterns.
 pub struct ManagedSet {
-    roots: GlobSet,
-    extra_files: GlobSet,
+    paths: GlobSet,
     ignore_patterns: GlobSet,
     denylist_patterns: GlobSet,
 }
 
 impl ManagedSet {
     pub fn from_config(config: &Config) -> Result<Self, globset::Error> {
-        let roots = normalize_roots(&config.manage.roots);
-        let extra_files = config.manage.extra_files.clone();
+        let normalized = normalize_paths(&config.manage.paths);
         let ignore_patterns = config.ignore.patterns.clone();
         let denylist_patterns = Vec::new();
 
-        Self::new(roots, extra_files, ignore_patterns, denylist_patterns)
+        Self::new(normalized, ignore_patterns, denylist_patterns)
     }
 
     pub fn is_allowed(&self, path: &Path) -> bool {
@@ -29,49 +25,33 @@ impl ManagedSet {
         !(is_ignored || is_denylisted)
     }
 
-    pub fn new<I, J, K, L>(
-        roots: I,
-        extra_files: J,
+    pub fn new<I, K, L>(
+        paths: I,
         ignore_patterns: K,
         denylist_patterns: L,
     ) -> Result<Self, globset::Error>
     where
         I: IntoIterator<Item = String>,
-        J: IntoIterator<Item = String>,
         K: IntoIterator<Item = String>,
         L: IntoIterator<Item = String>,
     {
-        // Normalize roots so that entries like `foo/` or `foo` manage
-        // all paths under that directory (`foo/**`). Callers can still
-        // pass explicit glob patterns and they will be preserved.
-        let roots_vec: Vec<String> = roots.into_iter().collect();
-        let roots = build_globset(normalize_roots(&roots_vec))?;
-        let extra_files = build_globset(extra_files)?;
+        let paths = build_globset(paths)?;
         let ignore_patterns = build_globset(ignore_patterns)?;
         let denylist_patterns = build_globset(denylist_patterns)?;
 
         Ok(Self {
-            roots,
-            extra_files,
+            paths,
             ignore_patterns,
             denylist_patterns,
         })
     }
 
-    /// Checks if a given path is managed by this `ManagedSet`.
-    ///
-    /// A path is considered managed if:
-    /// 1. It matches any of the `roots` or `extra_files`.
-    /// 2. AND it does NOT match any `ignore_patterns`.
-    /// 3. AND it does NOT match any `denylist_patterns`.
-    ///
-    /// Paths should be relative to the HOME directory.
     pub fn is_managed(&self, path: &Path) -> bool {
-        let is_root_or_extra = self.roots.is_match(path) || self.extra_files.is_match(path);
+        let matches_path = self.paths.is_match(path);
         let is_ignored = self.ignore_patterns.is_match(path);
         let is_denylisted = self.denylist_patterns.is_match(path);
 
-        is_root_or_extra && !is_ignored && !is_denylisted
+        matches_path && !is_ignored && !is_denylisted
     }
 }
 
@@ -86,25 +66,34 @@ where
     builder.build()
 }
 
-fn normalize_roots(roots: &[String]) -> Vec<String> {
-    roots
-        .iter()
-        .map(|root| normalize_root_pattern(root))
-        .collect()
+pub fn normalize_paths(paths: &[String]) -> Vec<String> {
+    paths.iter().map(|p| normalize_path(p)).collect()
 }
 
-fn normalize_root_pattern(root: &str) -> String {
-    let trimmed = root.trim_start_matches("./");
+pub fn normalize_path(path: &str) -> String {
+    let trimmed = path.trim_start_matches("./");
     if has_glob_meta(trimmed) {
         return trimmed.to_string();
     }
     if trimmed.ends_with("/**") {
         return trimmed.to_string();
     }
-    if trimmed.ends_with('/') {
-        return format!("{trimmed}**");
+    if is_directory_path(trimmed) {
+        let base = trimmed.trim_end_matches('/');
+        return format!("{base}/**");
     }
-    format!("{trimmed}/**")
+    trimmed.to_string()
+}
+
+fn is_directory_path(path: &str) -> bool {
+    if path.ends_with('/') {
+        return true;
+    }
+    if let Some(last) = path.rsplit('/').next() {
+        !last.contains('.')
+    } else {
+        !path.contains('.')
+    }
 }
 
 fn has_glob_meta(pattern: &str) -> bool {
@@ -118,9 +107,12 @@ mod tests {
 
     #[test]
     fn test_managed_set_creation() {
+        let paths = normalize_paths(&[
+            "foo/".to_string(),
+            "bar/baz.txt".to_string(),
+        ]);
         let managed_set = ManagedSet::new(
-            vec!["foo/".to_string()],
-            vec!["bar/baz.txt".to_string()],
+            paths,
             vec!["foo/ignore.txt".to_string()],
             vec!["**/*.bak".to_string()],
         )
@@ -135,9 +127,9 @@ mod tests {
 
     #[test]
     fn test_config_ignore_patterns_apply() {
+        let paths = normalize_paths(&[".config/".to_string()]);
         let managed_set = ManagedSet::new(
-            vec![".config/".to_string()],
-            Vec::<String>::new(),
+            paths,
             vec![
                 ".config/google-chrome/**".to_string(),
                 ".ssh/**".to_string(),
@@ -152,10 +144,10 @@ mod tests {
     }
 
     #[test]
-    fn test_ignore_overrides_root() {
+    fn test_ignore_overrides_path() {
+        let paths = normalize_paths(&["my_project/".to_string()]);
         let managed_set = ManagedSet::new(
-            vec!["my_project/".to_string()],
-            Vec::<String>::new(),
+            paths,
             vec!["my_project/ignored_dir/**".to_string()],
             Vec::<String>::new(),
         )
@@ -167,9 +159,12 @@ mod tests {
 
     #[test]
     fn test_denylist_overrides_all() {
+        let paths = normalize_paths(&[
+            "my_project/".to_string(),
+            "my_project/important_file.txt".to_string(),
+        ]);
         let managed_set = ManagedSet::new(
-            vec!["my_project/".to_string()],
-            vec!["my_project/important_file.txt".to_string()],
+            paths,
             Vec::<String>::new(),
             vec!["**/*.secret".to_string()],
         )
@@ -182,10 +177,10 @@ mod tests {
     }
 
     #[test]
-    fn test_only_extra_files() {
+    fn test_file_path() {
+        let paths = normalize_paths(&[".zshrc".to_string()]);
         let managed_set = ManagedSet::new(
-            Vec::<String>::new(),
-            vec![".zshrc".to_string()],
+            paths,
             Vec::<String>::new(),
             Vec::<String>::new(),
         )
@@ -193,5 +188,31 @@ mod tests {
 
         assert!(managed_set.is_managed(&PathBuf::from(".zshrc")));
         assert!(!managed_set.is_managed(&PathBuf::from("src/main.rs")));
+    }
+
+    #[test]
+    fn test_normalize_path_detection() {
+        assert_eq!(normalize_path(".config/"), ".config/**");
+        assert_eq!(normalize_path(".local/bin"), ".local/bin/**");
+        assert_eq!(normalize_path(".zshrc"), ".zshrc");
+        assert_eq!(normalize_path(".bashrc"), ".bashrc");
+        assert_eq!(normalize_path("scripts/deploy.sh"), "scripts/deploy.sh");
+        assert_eq!(normalize_path(".config/app/config.toml"), ".config/app/config.toml");
+        assert_eq!(normalize_path("**/*.txt"), "**/*.txt");
+    }
+
+    #[test]
+    fn test_directory_in_paths_matches_contents() {
+        let paths = normalize_paths(&[".local/bin".to_string()]);
+        let managed_set = ManagedSet::new(
+            paths,
+            Vec::<String>::new(),
+            Vec::<String>::new(),
+        )
+        .unwrap();
+
+        assert!(managed_set.is_managed(&PathBuf::from(".local/bin/myscript")));
+        assert!(managed_set.is_managed(&PathBuf::from(".local/bin/subdir/tool")));
+        assert!(!managed_set.is_managed(&PathBuf::from(".local/share/other")));
     }
 }
