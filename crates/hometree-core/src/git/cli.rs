@@ -23,7 +23,14 @@ impl GitCliBackend {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitError::CommandFailed(stderr.to_string()));
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // Some git commands (like commit with nothing to commit) output to stdout
+            let msg = if stderr.trim().is_empty() && !stdout.trim().is_empty() {
+                stdout.to_string()
+            } else {
+                stderr.to_string()
+            };
+            return Err(GitError::CommandFailed(msg));
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -43,7 +50,13 @@ impl GitCliBackend {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(GitError::CommandFailed(stderr.to_string()));
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let msg = if stderr.trim().is_empty() && !stdout.trim().is_empty() {
+                stdout.to_string()
+            } else {
+                stderr.to_string()
+            };
+            return Err(GitError::CommandFailed(msg));
         }
 
         Ok(output.stdout)

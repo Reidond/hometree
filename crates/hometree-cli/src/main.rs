@@ -565,11 +565,43 @@ fn run_snapshot(overrides: &Overrides, message: Option<String>, auto: bool) -> R
     };
 
     let output = with_lock(&paths, || {
+        let managed_paths = collect_managed_paths(&config);
+        if !managed_paths.is_empty() {
+            git.add(
+                &config.repo.git_dir,
+                &config.repo.work_tree,
+                &managed_paths,
+                AddMode::TrackedOnly,
+            )
+            .context("git add -u")?;
+        }
         git.commit(&config.repo.git_dir, &config.repo.work_tree, &msg)
             .context("git commit")
     })?;
     println!("{output}");
     Ok(())
+}
+
+fn collect_managed_paths(config: &Config) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let work_tree = &config.repo.work_tree;
+    for root in &config.manage.roots {
+        let normalized = root
+            .trim_start_matches("./")
+            .trim_end_matches("/**")
+            .trim_end_matches('/');
+        let abs_path = work_tree.join(normalized);
+        if abs_path.exists() {
+            paths.push(PathBuf::from(normalized));
+        }
+    }
+    for extra in &config.manage.extra_files {
+        let abs_path = work_tree.join(extra);
+        if abs_path.exists() {
+            paths.push(PathBuf::from(extra));
+        }
+    }
+    paths
 }
 
 fn guard_snapshot_secrets(config: &Config, git: &GitCliBackend) -> Result<()> {
