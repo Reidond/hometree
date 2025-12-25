@@ -708,6 +708,7 @@ mod tests {
             _remote: &str,
             _refspec: Option<&str>,
             _set_upstream: bool,
+            _force: bool,
         ) -> Result<String> {
             unimplemented!()
         }
