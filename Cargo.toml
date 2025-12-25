@@ -1,3 +1,6 @@
 [workspace]
 members = ["crates/hometree-core", "crates/hometree-cli"]
 resolver = "2"
+
+[workspace.package]
+license = "GPL-3.0-or-later"
