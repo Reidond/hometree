@@ -100,12 +100,7 @@ impl Config {
                 work_tree: paths_ctx.home_dir().to_path_buf(),
             },
             manage: ManageConfig {
-                paths: vec![
-                    ".config/".to_string(),
-                    ".local/bin/".to_string(),
-                    ".local/share/systemd/user/".to_string(),
-                    ".local/share/applications/".to_string(),
-                ],
+                paths: vec![".config/hometree/config.toml".to_string()],
             },
             ignore: IgnoreConfig {
                 patterns: vec![
