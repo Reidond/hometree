@@ -121,12 +121,12 @@ hometree verify [--rev REV] [--strict] [--with-secrets skip|presence|decrypt] [-
 
 ### secret
 ```
-hometree secret add <path>
+hometree secret add <path> [--no-purge]
 hometree secret refresh [<path>...]
 hometree secret status [--show-paths]
 hometree secret rekey
 ```
-- `add`: enables secrets, records a rule, writes ciphertext sidecar (`<path><suffix>` by default), updates ignores/excludes, stages the ciphertext. Requires plaintext to exist and age recipients to be configured.
+- `add`: enables secrets, records a rule, writes ciphertext sidecar (`<path><suffix>` by default), updates ignores/excludes, stages the ciphertext. If the file was previously committed as plaintext, prompts to purge it from git history (requires `git-filter-repo`). Use `--no-purge` to skip. Requires plaintext to exist and age recipients to be configured.
 - `refresh`: re-encrypts sidecars (optionally filtered). Errors if secrets are disabled. Stages updated ciphertexts.
 - `status`: reports `in-sync`, `drift`, `missing-plaintext`, `missing-ciphertext`, or `decrypt-error` per rule; redacts paths unless `--show-paths`.
 - `rekey`: re-encrypts all secrets with current recipients. Requires secrets enabled and identity files for decryption.
@@ -136,12 +136,12 @@ hometree secret rekey
 hometree remote add <name> <url>
 hometree remote remove <name>
 hometree remote list
-hometree remote push [remote] [-b branch] [-u]
+hometree remote push [remote] [-b branch] [-u] [-f|--force]
 ```
 - `add`: adds a git remote (e.g., `hometree remote add origin git@github.com:user/dotfiles.git`).
 - `remove`: removes a configured remote.
 - `list`: shows all configured remotes with their URLs.
-- `push`: pushes to a remote (default: `origin`). Use `-b` to specify a branch, `-u` to set upstream tracking.
+- `push`: pushes to a remote (default: `origin`). Use `-b` to specify a branch, `-u` to set upstream tracking, `-f` to force push (after history rewrite).
 
 ### sync
 ```

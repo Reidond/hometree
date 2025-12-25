@@ -64,10 +64,10 @@ enum Commands {
     },
     /// Create a snapshot commit from staged changes
     Snapshot {
-        /// Commit message
-        #[arg(short = 'm', long = "message", required_unless_present = "auto")]
+        /// Commit message (auto-generated if not provided)
+        #[arg(short = 'm', long = "message")]
         message: Option<String>,
-        /// Use the auto message template
+        /// Use the auto message template from config
         #[arg(long)]
         auto: bool,
     },
@@ -174,6 +174,9 @@ enum SecretCommand {
     Add {
         #[arg(required = true)]
         path: PathBuf,
+        /// Skip purging plaintext from git history
+        #[arg(long)]
+        no_purge: bool,
     },
     /// Re-encrypt secrets (all or selected paths)
     Refresh {
@@ -220,6 +223,9 @@ enum RemoteCommand {
         /// Set upstream tracking reference
         #[arg(short = 'u', long)]
         set_upstream: bool,
+        /// Force push (overwrites remote history)
+        #[arg(short, long)]
+        force: bool,
     },
 }
 
@@ -541,8 +547,12 @@ fn run_snapshot(overrides: &Overrides, message: Option<String>, auto: bool) -> R
             .auto_message_template
             .clone()
             .ok_or_else(|| anyhow!("auto message template is not configured"))?
+    } else if let Some(m) = message {
+        m
     } else {
-        message.ok_or_else(|| anyhow!("message is required"))?
+        let now = time::OffsetDateTime::now_utc();
+        let format = time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
+        format!("snapshot: {}", now.format(&format).unwrap_or_else(|_| "auto".to_string()))
     };
 
     let output = with_lock(&paths, || {
@@ -790,14 +800,14 @@ fn redact_verify_report(report: &hometree_core::VerifyReport) -> hometree_core::
 
 fn run_secret(overrides: &Overrides, command: SecretCommand) -> Result<()> {
     match command {
-        SecretCommand::Add { path } => run_secret_add(overrides, path),
+        SecretCommand::Add { path, no_purge } => run_secret_add(overrides, path, no_purge),
         SecretCommand::Refresh { paths } => run_secret_refresh(overrides, paths),
         SecretCommand::Status { show_paths } => run_secret_status(overrides, show_paths),
         SecretCommand::Rekey => run_secret_rekey(overrides),
     }
 }
 
-fn run_secret_add(overrides: &Overrides, path: PathBuf) -> Result<()> {
+fn run_secret_add(overrides: &Overrides, path: PathBuf, no_purge: bool) -> Result<()> {
     let (paths, mut config) = load_config(overrides)?;
     config.secrets.enabled = true;
     let rel = resolve_rel_path(paths.home_dir(), &path)?;
@@ -805,6 +815,38 @@ fn run_secret_add(overrides: &Overrides, path: PathBuf) -> Result<()> {
     if config.secrets.rules.iter().any(|rule| rule.path == rel_str) {
         return Err(anyhow!("secret rule already exists"));
     }
+
+    let git = GitCliBackend::new();
+
+    let in_history = git
+        .file_in_history(&config.repo.git_dir, &config.repo.work_tree, &rel)
+        .unwrap_or(false);
+
+    if in_history && !no_purge {
+        eprintln!(
+            "WARNING: {} exists in git history as plaintext.",
+            rel.display()
+        );
+        eprintln!("This will rewrite git history to remove all plaintext versions.");
+        eprint!("Continue? [y/N] ");
+        std::io::Write::flush(&mut std::io::stderr())?;
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            return Err(anyhow!("aborted"));
+        }
+
+        eprintln!("purging {} from history...", rel.display());
+        git.purge_path_from_history(&config.repo.git_dir, &config.repo.work_tree, &rel)
+            .context("failed to purge plaintext from history")?;
+        eprintln!("history purged");
+    }
+
+    eprintln!("unstaging plaintext from index...");
+    git.remove_cached(&config.repo.git_dir, &config.repo.work_tree, &rel)
+        .context("failed to unstage plaintext")?;
+
     config
         .secrets
         .rules
@@ -816,7 +858,9 @@ fn run_secret_add(overrides: &Overrides, path: PathBuf) -> Result<()> {
     if !config.ignore.patterns.contains(&rel_str) {
         config.ignore.patterns.push(rel_str.clone());
     }
+    config.manage.paths.retain(|p| p != &rel_str);
 
+    eprintln!("updating config...");
     let config_path = paths.config_file();
     config
         .write_to(&config_path)
@@ -826,6 +870,8 @@ fn run_secret_add(overrides: &Overrides, path: PathBuf) -> Result<()> {
     let backend = AgeBackend::from_config(&config.secrets)?;
     let plaintext_abs = paths.home_dir().join(&rel);
     let plaintext = std::fs::read(&plaintext_abs).context("read secret plaintext")?;
+
+    eprintln!("encrypting to {}...", rel_str.clone() + &config.secrets.sidecar_suffix);
     let ciphertext = backend.encrypt(&plaintext)?;
     let ciphertext_rel = secrets.ciphertext_path(
         secrets
@@ -842,7 +888,7 @@ fn run_secret_add(overrides: &Overrides, path: PathBuf) -> Result<()> {
 
     ensure_git_excludes(&paths, &config)?;
 
-    let git = GitCliBackend::new();
+    eprintln!("staging ciphertext...");
     with_lock(&paths, || {
         git.add(
             &config.repo.git_dir,
@@ -853,7 +899,7 @@ fn run_secret_add(overrides: &Overrides, path: PathBuf) -> Result<()> {
         .context("git add")
     })?;
 
-    println!("secret added");
+    eprintln!("done");
     Ok(())
 }
 
@@ -866,6 +912,7 @@ fn run_secret_refresh(overrides: &Overrides, paths: Vec<PathBuf>) -> Result<()> 
     let backend = AgeBackend::from_config(&config.secrets)?;
     let git = GitCliBackend::new();
     let mut to_stage = Vec::new();
+    let mut to_unstage = Vec::new();
     let filter: Option<std::collections::BTreeSet<PathBuf>> = if paths.is_empty() {
         None
     } else {
@@ -889,14 +936,21 @@ fn run_secret_refresh(overrides: &Overrides, paths: Vec<PathBuf>) -> Result<()> 
         }
         let plaintext_abs = paths_ctx.home_dir().join(&plaintext_rel);
         let plaintext = std::fs::read(&plaintext_abs)?;
-        let ciphertext = backend.encrypt(&plaintext)?;
         let ciphertext_rel = secrets.ciphertext_path(rule);
+        eprintln!("encrypting {} -> {}", plaintext_rel.display(), ciphertext_rel.display());
+        let ciphertext = backend.encrypt(&plaintext)?;
         let ciphertext_abs = paths_ctx.home_dir().join(&ciphertext_rel);
         if let Some(parent) = ciphertext_abs.parent() {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(&ciphertext_abs, ciphertext)?;
         to_stage.push(ciphertext_rel);
+        to_unstage.push(plaintext_rel);
+    }
+
+    for plaintext_rel in &to_unstage {
+        eprintln!("unstaging {}", plaintext_rel.display());
+        let _ = git.remove_cached(&config.repo.git_dir, &config.repo.work_tree, plaintext_rel);
     }
 
     if !to_stage.is_empty() {
@@ -1010,7 +1064,8 @@ fn run_remote(overrides: &Overrides, command: RemoteCommand) -> Result<()> {
             remote,
             branch,
             set_upstream,
-        } => run_remote_push(overrides, remote, branch, set_upstream),
+            force,
+        } => run_remote_push(overrides, remote, branch, set_upstream, force),
     }
 }
 
@@ -1053,6 +1108,7 @@ fn run_remote_push(
     remote: String,
     branch: Option<String>,
     set_upstream: bool,
+    force: bool,
 ) -> Result<()> {
     let (_paths, config) = load_config(overrides)?;
     let git = GitCliBackend::new();
@@ -1063,6 +1119,7 @@ fn run_remote_push(
             &remote,
             branch.as_deref(),
             set_upstream,
+            force,
         )
         .context("git push")?;
     if !output.is_empty() {

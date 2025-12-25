@@ -345,10 +345,14 @@ impl GitBackend for GitCliBackend {
         remote: &str,
         refspec: Option<&str>,
         set_upstream: bool,
+        force: bool,
     ) -> GitResult<String> {
         let mut args = vec!["push".to_string()];
         if set_upstream {
             args.push("-u".to_string());
+        }
+        if force {
+            args.push("--force".to_string());
         }
         args.push(remote.to_string());
         if let Some(spec) = refspec {
@@ -359,6 +363,91 @@ impl GitBackend for GitCliBackend {
 
     fn pull(&self, git_dir: &Path, work_tree: &Path, remote: &str) -> GitResult<String> {
         self.run_command(git_dir, work_tree, &["pull", remote])
+    }
+}
+
+impl GitCliBackend {
+    pub fn remove_cached(&self, git_dir: &Path, work_tree: &Path, path: &Path) -> GitResult<()> {
+        let pathspec = format!(":(top){}", path.to_string_lossy());
+        let output = Command::new("git")
+            .args(["--git-dir", git_dir.to_string_lossy().as_ref()])
+            .args(["--work-tree", work_tree.to_string_lossy().as_ref()])
+            .args(["rm", "--cached", "-f", "--ignore-unmatch", "--"])
+            .arg(&pathspec)
+            .output()?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(GitError::CommandFailed(stderr.to_string()));
+        }
+        Ok(())
+    }
+
+    pub fn file_in_history(&self, git_dir: &Path, work_tree: &Path, path: &Path) -> GitResult<bool> {
+        let output = self.run_command(
+            git_dir,
+            work_tree,
+            &["log", "--all", "--pretty=format:", "--name-only", "--", &path.to_string_lossy()],
+        );
+        match output {
+            Ok(out) => Ok(!out.trim().is_empty()),
+            Err(GitError::CommandFailed(_)) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn purge_path_from_history(&self, git_dir: &Path, work_tree: &Path, path: &Path) -> GitResult<()> {
+        let filter_repo_available = Command::new("git-filter-repo")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if !filter_repo_available {
+            return Err(GitError::CommandFailed(
+                "git-filter-repo not found. Install it with: pip install git-filter-repo".into(),
+            ));
+        }
+
+        let remotes = self.remote_list(git_dir, work_tree).unwrap_or_default();
+
+        let status = Command::new("git-filter-repo")
+            .arg("--force")
+            .arg("--invert-paths")
+            .arg("--path")
+            .arg(path.to_string_lossy().as_ref())
+            .current_dir(git_dir)
+            .status()?;
+
+        if !status.success() {
+            return Err(GitError::CommandFailed(
+                "git-filter-repo failed to purge path from history".into(),
+            ));
+        }
+
+        for remote in remotes {
+            let _ = self.remote_add(git_dir, work_tree, &remote.name, &remote.url);
+        }
+
+        let gc_status = Command::new("git")
+            .args(["--git-dir", git_dir.to_string_lossy().as_ref()])
+            .args(["reflog", "expire", "--expire=now", "--all"])
+            .status()?;
+
+        if !gc_status.success() {
+            return Err(GitError::CommandFailed("git reflog expire failed".into()));
+        }
+
+        let prune_status = Command::new("git")
+            .args(["--git-dir", git_dir.to_string_lossy().as_ref()])
+            .args(["gc", "--prune=now", "--aggressive"])
+            .status()?;
+
+        if !prune_status.success() {
+            return Err(GitError::CommandFailed("git gc failed".into()));
+        }
+
+        Ok(())
     }
 }
 

@@ -30,7 +30,7 @@ mode = 0o600                               # optional; defaults to 0o600
 ```
 
 ## Lifecycle
-- `hometree secret add <path>`: creates a rule, appends the plaintext path to ignores/excludes, encrypts to the sidecar, and stages the ciphertext.
+- `hometree secret add <path>`: creates a rule, appends the plaintext path to ignores/excludes, encrypts to the sidecar, and stages the ciphertext. If the file was previously committed as plaintext, prompts to purge it from git history (requires `git-filter-repo`). Use `--no-purge` to skip history rewriting.
 - `hometree secret refresh [paths...]`: re-encrypts selected or all secrets and stages the updated sidecars (use after plaintext edits).
 - `hometree secret rekey`: re-encrypts all secrets with current recipients (identity files must decrypt old ciphertexts).
 - `hometree secret status [--show-paths]`: reports `missing-plaintext`, `missing-ciphertext`, `in-sync`, `drift`, or `decrypt-error` for each rule.
