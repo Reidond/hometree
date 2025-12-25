@@ -67,11 +67,6 @@ Paths are automatically normalized:
 - Directories (trailing `/` or no file extension) become glob patterns: `.config/` → `.config/**`
 - Individual files are matched exactly: `.zshrc` → `.zshrc`
 
-**Legacy fields** (deprecated, auto-migrated):
-- `roots` - merged into `paths` on load
-- `extra_files` - merged into `paths` on load
-- `allow_outside` - no longer needed (all paths can be tracked)
-
 ### [ignore]
 
 | Key | Type | Default | Notes |

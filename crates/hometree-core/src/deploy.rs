@@ -68,8 +68,7 @@ pub fn deploy_with_options(
         &managed,
         secrets_ref,
         paths.home_dir(),
-        &config.manage.roots,
-        &config.manage.extra_files,
+        &config.manage.paths,
     )?;
 
     if !options.no_backup {
@@ -165,43 +164,45 @@ pub(crate) fn collect_current_paths(
     managed: &ManagedSet,
     secrets: Option<&SecretsManager>,
     home_dir: &Path,
-    roots: &[String],
-    extra_files: &[String],
+    paths: &[String],
 ) -> Result<BTreeSet<PathBuf>> {
+    use crate::managed_set::is_directory_path;
+
     let mut set = BTreeSet::new();
 
-    for extra in extra_files {
-        let rel = PathBuf::from(extra);
-        let abs = home_dir.join(&rel);
-        let is_secret_cipher = secrets
-            .map(|secrets| secrets.is_ciphertext_rule_path(&rel))
-            .unwrap_or(false);
-        if abs.exists() && (managed.is_managed(&rel) || is_secret_cipher) {
-            set.insert(rel);
+    for path in paths {
+        let normalized = normalize_root(path);
+        if normalized.as_os_str().is_empty() {
+            continue;
         }
-    }
 
-    for root in roots {
-        let root_path = normalize_root(root);
-        if root_path.as_os_str().is_empty() {
+        let abs = home_dir.join(&normalized);
+        if !abs.exists() {
             continue;
         }
-        let abs_root = home_dir.join(&root_path);
-        if !abs_root.exists() {
-            continue;
-        }
-        for entry in WalkDir::new(&abs_root)
-            .follow_links(false)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            if entry.file_type().is_dir() {
-                continue;
+
+        if is_directory_path(path) {
+            for entry in WalkDir::new(&abs)
+                .follow_links(false)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                if entry.file_type().is_dir() {
+                    continue;
+                }
+                let rel = match entry.path().strip_prefix(home_dir) {
+                    Ok(rel) => rel.to_path_buf(),
+                    Err(_) => continue,
+                };
+                let is_secret_cipher = secrets
+                    .map(|secrets| secrets.is_ciphertext_rule_path(&rel))
+                    .unwrap_or(false);
+                if managed.is_managed(&rel) || is_secret_cipher {
+                    set.insert(rel);
+                }
             }
-            let rel = match entry.path().strip_prefix(home_dir) {
-                Ok(rel) => rel.to_path_buf(),
-                Err(_) => continue,
-            };
+        } else {
+            let rel = normalized;
             let is_secret_cipher = secrets
                 .map(|secrets| secrets.is_ciphertext_rule_path(&rel))
                 .unwrap_or(false);
@@ -794,8 +795,7 @@ mod tests {
 
         let paths = Paths::new().expect("paths");
         let mut config = Config::default_with_paths(&paths);
-        config.manage.roots = vec![".config/".to_string()];
-        config.manage.extra_files = vec![".zshrc".to_string()];
+        config.manage.paths = vec![".config/".to_string(), ".zshrc".to_string()];
         config.ignore.patterns = vec![".config/ignored/**".to_string()];
         let managed = ManagedSet::from_config(&config).expect("managed");
 
@@ -803,8 +803,7 @@ mod tests {
             &managed,
             None,
             home,
-            &config.manage.roots,
-            &config.manage.extra_files,
+            &config.manage.paths,
         )
         .expect("collect");
 

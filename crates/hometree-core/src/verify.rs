@@ -111,8 +111,7 @@ pub fn verify(
             &managed,
             secrets_ref,
             paths.home_dir(),
-            &config.manage.roots,
-            &config.manage.extra_files,
+            &config.manage.paths,
         )?;
         for rel in current_paths {
             if !target_entries.contains_key(&rel) {

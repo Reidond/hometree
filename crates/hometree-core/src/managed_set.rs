@@ -85,7 +85,7 @@ pub fn normalize_path(path: &str) -> String {
     trimmed.to_string()
 }
 
-fn is_directory_path(path: &str) -> bool {
+pub fn is_directory_path(path: &str) -> bool {
     if path.ends_with('/') {
         return true;
     }

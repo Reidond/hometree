@@ -56,8 +56,7 @@ pub fn plan_deploy(
         &managed,
         secrets_ref,
         paths.home_dir(),
-        &config.manage.roots,
-        &config.manage.extra_files,
+        &config.manage.paths,
     )?;
 
     let mut entries = Vec::new();
