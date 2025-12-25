@@ -238,9 +238,7 @@ impl GitBackend for GitCliBackend {
         work_tree: &Path,
         limit: Option<usize>,
     ) -> GitResult<Vec<LogEntry>> {
-        let format = format!(
-            "--format={COMMIT_DELIM}%h{FIELD_DELIM}%ad{FIELD_DELIM}%s"
-        );
+        let format = format!("--format={COMMIT_DELIM}%h{FIELD_DELIM}%ad{FIELD_DELIM}%s");
 
         let mut args = vec![
             "log".to_string(),
@@ -411,11 +409,23 @@ impl GitCliBackend {
         Ok(())
     }
 
-    pub fn file_in_history(&self, git_dir: &Path, work_tree: &Path, path: &Path) -> GitResult<bool> {
+    pub fn file_in_history(
+        &self,
+        git_dir: &Path,
+        work_tree: &Path,
+        path: &Path,
+    ) -> GitResult<bool> {
         let output = self.run_command(
             git_dir,
             work_tree,
-            &["log", "--all", "--pretty=format:", "--name-only", "--", &path.to_string_lossy()],
+            &[
+                "log",
+                "--all",
+                "--pretty=format:",
+                "--name-only",
+                "--",
+                &path.to_string_lossy(),
+            ],
         );
         match output {
             Ok(out) => Ok(!out.trim().is_empty()),
@@ -424,7 +434,12 @@ impl GitCliBackend {
         }
     }
 
-    pub fn purge_path_from_history(&self, git_dir: &Path, work_tree: &Path, path: &Path) -> GitResult<()> {
+    pub fn purge_path_from_history(
+        &self,
+        git_dir: &Path,
+        work_tree: &Path,
+        path: &Path,
+    ) -> GitResult<()> {
         let filter_repo_available = Command::new("git-filter-repo")
             .arg("--version")
             .output()

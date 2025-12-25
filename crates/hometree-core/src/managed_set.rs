@@ -107,10 +107,7 @@ mod tests {
 
     #[test]
     fn test_managed_set_creation() {
-        let paths = normalize_paths(&[
-            "foo/".to_string(),
-            "bar/baz.txt".to_string(),
-        ]);
+        let paths = normalize_paths(&["foo/".to_string(), "bar/baz.txt".to_string()]);
         let managed_set = ManagedSet::new(
             paths,
             vec!["foo/ignore.txt".to_string()],
@@ -163,12 +160,8 @@ mod tests {
             "my_project/".to_string(),
             "my_project/important_file.txt".to_string(),
         ]);
-        let managed_set = ManagedSet::new(
-            paths,
-            Vec::<String>::new(),
-            vec!["**/*.secret".to_string()],
-        )
-        .unwrap();
+        let managed_set =
+            ManagedSet::new(paths, Vec::<String>::new(), vec!["**/*.secret".to_string()]).unwrap();
 
         assert!(managed_set.is_managed(&PathBuf::from("my_project/src/main.rs")));
         assert!(managed_set.is_managed(&PathBuf::from("my_project/important_file.txt")));
@@ -179,12 +172,8 @@ mod tests {
     #[test]
     fn test_file_path() {
         let paths = normalize_paths(&[".zshrc".to_string()]);
-        let managed_set = ManagedSet::new(
-            paths,
-            Vec::<String>::new(),
-            Vec::<String>::new(),
-        )
-        .unwrap();
+        let managed_set =
+            ManagedSet::new(paths, Vec::<String>::new(), Vec::<String>::new()).unwrap();
 
         assert!(managed_set.is_managed(&PathBuf::from(".zshrc")));
         assert!(!managed_set.is_managed(&PathBuf::from("src/main.rs")));
@@ -197,19 +186,18 @@ mod tests {
         assert_eq!(normalize_path(".zshrc"), ".zshrc");
         assert_eq!(normalize_path(".bashrc"), ".bashrc");
         assert_eq!(normalize_path("scripts/deploy.sh"), "scripts/deploy.sh");
-        assert_eq!(normalize_path(".config/app/config.toml"), ".config/app/config.toml");
+        assert_eq!(
+            normalize_path(".config/app/config.toml"),
+            ".config/app/config.toml"
+        );
         assert_eq!(normalize_path("**/*.txt"), "**/*.txt");
     }
 
     #[test]
     fn test_directory_in_paths_matches_contents() {
         let paths = normalize_paths(&[".local/bin".to_string()]);
-        let managed_set = ManagedSet::new(
-            paths,
-            Vec::<String>::new(),
-            Vec::<String>::new(),
-        )
-        .unwrap();
+        let managed_set =
+            ManagedSet::new(paths, Vec::<String>::new(), Vec::<String>::new()).unwrap();
 
         assert!(managed_set.is_managed(&PathBuf::from(".local/bin/myscript")));
         assert!(managed_set.is_managed(&PathBuf::from(".local/bin/subdir/tool")));

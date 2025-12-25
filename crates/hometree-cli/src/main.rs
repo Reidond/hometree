@@ -328,14 +328,22 @@ fn run_init(overrides: &Overrides, from: Option<String>, auto_deploy: bool) -> R
 
     if let Some(url) = from {
         if repo_dir.exists() {
-            return Err(anyhow!("repo already exists at {}; remove it first to clone from remote", repo_dir.display()));
+            return Err(anyhow!(
+                "repo already exists at {}; remove it first to clone from remote",
+                repo_dir.display()
+            ));
         }
         clone_bare_repo(&url, &repo_dir).context("clone bare repo")?;
         info!(path = %repo_dir.display(), "cloned bare repo from {}", url);
 
         let config_path = paths.config_file();
         if !config_path.exists() {
-            if let Ok(config_bytes) = git.show_blob(&repo_dir, paths.home_dir(), "HEAD", Path::new(".config/hometree/config.toml")) {
+            if let Ok(config_bytes) = git.show_blob(
+                &repo_dir,
+                paths.home_dir(),
+                "HEAD",
+                Path::new(".config/hometree/config.toml"),
+            ) {
                 if let Some(parent) = config_path.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
@@ -551,8 +559,13 @@ fn run_snapshot(overrides: &Overrides, message: Option<String>, auto: bool) -> R
         m
     } else {
         let now = time::OffsetDateTime::now_utc();
-        let format = time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
-        format!("snapshot: {}", now.format(&format).unwrap_or_else(|_| "auto".to_string()))
+        let format =
+            time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]")
+                .unwrap();
+        format!(
+            "snapshot: {}",
+            now.format(&format).unwrap_or_else(|_| "auto".to_string())
+        )
     };
 
     let output = with_lock(&paths, || {
@@ -911,7 +924,10 @@ fn run_secret_add(overrides: &Overrides, path: PathBuf, no_purge: bool) -> Resul
     let plaintext_abs = paths.home_dir().join(&rel);
     let plaintext = std::fs::read(&plaintext_abs).context("read secret plaintext")?;
 
-    eprintln!("encrypting to {}...", rel_str.clone() + &config.secrets.sidecar_suffix);
+    eprintln!(
+        "encrypting to {}...",
+        rel_str.clone() + &config.secrets.sidecar_suffix
+    );
     let ciphertext = backend.encrypt(&plaintext)?;
     let ciphertext_rel = secrets.ciphertext_path(
         secrets
@@ -977,7 +993,11 @@ fn run_secret_refresh(overrides: &Overrides, paths: Vec<PathBuf>) -> Result<()> 
         let plaintext_abs = paths_ctx.home_dir().join(&plaintext_rel);
         let plaintext = std::fs::read(&plaintext_abs)?;
         let ciphertext_rel = secrets.ciphertext_path(rule);
-        eprintln!("encrypting {} -> {}", plaintext_rel.display(), ciphertext_rel.display());
+        eprintln!(
+            "encrypting {} -> {}",
+            plaintext_rel.display(),
+            ciphertext_rel.display()
+        );
         let ciphertext = backend.encrypt(&plaintext)?;
         let ciphertext_abs = paths_ctx.home_dir().join(&ciphertext_rel);
         if let Some(parent) = ciphertext_abs.parent() {

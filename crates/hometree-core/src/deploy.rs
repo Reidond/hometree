@@ -809,13 +809,8 @@ mod tests {
         config.ignore.patterns = vec![".config/ignored/**".to_string()];
         let managed = ManagedSet::from_config(&config).expect("managed");
 
-        let current = collect_current_paths(
-            &managed,
-            None,
-            home,
-            &config.manage.paths,
-        )
-        .expect("collect");
+        let current =
+            collect_current_paths(&managed, None, home, &config.manage.paths).expect("collect");
 
         assert!(current.contains(&PathBuf::from(".config/app/config.toml")));
         assert!(!current.contains(&PathBuf::from(".config/ignored/secret.txt")));

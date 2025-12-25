@@ -67,13 +67,8 @@ mod tests {
     #[test]
     fn track_inside_managed_paths() {
         let (managed, home) = config();
-        let decision = decide_track(
-            Path::new(".config/app/config.toml"),
-            &home,
-            &managed,
-            false,
-        )
-        .expect("decision");
+        let decision = decide_track(Path::new(".config/app/config.toml"), &home, &managed, false)
+            .expect("decision");
         assert_eq!(decision.rel_path, PathBuf::from(".config/app/config.toml"));
         assert!(!decision.add_to_paths);
     }
@@ -89,8 +84,7 @@ mod tests {
     #[test]
     fn track_new_file_adds_to_paths() {
         let (managed, home) = config();
-        let decision =
-            decide_track(Path::new(".vimrc"), &home, &managed, false).expect("decision");
+        let decision = decide_track(Path::new(".vimrc"), &home, &managed, false).expect("decision");
         assert_eq!(decision.rel_path, PathBuf::from(".vimrc"));
         assert!(decision.add_to_paths);
     }
@@ -98,17 +92,21 @@ mod tests {
     #[test]
     fn track_ignored_requires_force() {
         let (managed, home) = config();
-        let err = decide_track(Path::new(".config/ignored/file.txt"), &home, &managed, false)
-            .unwrap_err();
+        let err = decide_track(
+            Path::new(".config/ignored/file.txt"),
+            &home,
+            &managed,
+            false,
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("ignored"));
     }
 
     #[test]
     fn track_ignored_with_force() {
         let (managed, home) = config();
-        let decision =
-            decide_track(Path::new(".config/ignored/file.txt"), &home, &managed, true)
-                .expect("decision");
+        let decision = decide_track(Path::new(".config/ignored/file.txt"), &home, &managed, true)
+            .expect("decision");
         assert_eq!(decision.rel_path, PathBuf::from(".config/ignored/file.txt"));
         assert!(decision.add_to_paths);
     }
