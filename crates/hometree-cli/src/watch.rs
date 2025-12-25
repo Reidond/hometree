@@ -178,6 +178,7 @@ mod tests {
 
         let paths = Paths::new_with_overrides(Some(&home), Some(&xdg)).expect("paths");
         let mut config = Config::default_with_paths(&paths);
+        config.manage.paths = vec![".config/".to_string()];
         config.secrets.enabled = true;
         config.secrets.rules.push(SecretRule {
             path: ".config/app/secret.txt".to_string(),
@@ -242,6 +243,7 @@ mod tests {
 
         let paths = Paths::new_with_overrides(Some(&home), Some(&xdg)).expect("paths");
         let mut config = Config::default_with_paths(&paths);
+        config.manage.paths = vec![".config/".to_string()];
         config.secrets.enabled = true;
         config.secrets.rules.push(SecretRule {
             path: ".config/app/secret.txt".to_string(),
