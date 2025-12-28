@@ -705,7 +705,7 @@ dependencies = [
 
 [[package]]
 name = "hometree-cli"
-version = "0.5.0"
+version = "0.6.1"
 dependencies = [
  "age",
  "anyhow",
@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "hometree-core"
-version = "0.5.0"
+version = "0.6.1"
 dependencies = [
  "age",
  "directories",
