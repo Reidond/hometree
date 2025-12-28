@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::fs;
 use std::path::PathBuf;
 
 use serde::Serialize;
@@ -64,15 +65,39 @@ pub fn plan_deploy(
 
     for rel in target_paths.iter() {
         let abs = paths.home_dir().join(rel);
-        let action = if abs.exists() {
-            PlanAction::Update
+        if !abs.exists() {
+            entries.push(PlanEntry {
+                action: PlanAction::Create,
+                path: rel.to_string_lossy().to_string(),
+            });
+            continue;
+        }
+
+        let target_blob =
+            match git.show_blob(&config.repo.git_dir, &config.repo.work_tree, &resolved, rel) {
+                Ok(blob) => blob,
+                Err(_) => continue,
+            };
+
+        let needs_update = if let Ok(meta) = fs::symlink_metadata(&abs) {
+            if meta.file_type().is_symlink() {
+                let link_target = fs::read_link(&abs).unwrap_or_default();
+                let target_str = String::from_utf8_lossy(&target_blob);
+                link_target.to_string_lossy() != target_str.trim_end_matches('\0')
+            } else {
+                let current = fs::read(&abs).unwrap_or_default();
+                current != target_blob
+            }
         } else {
-            PlanAction::Create
+            true
         };
-        entries.push(PlanEntry {
-            action,
-            path: rel.to_string_lossy().to_string(),
-        });
+
+        if needs_update {
+            entries.push(PlanEntry {
+                action: PlanAction::Update,
+                path: rel.to_string_lossy().to_string(),
+            });
+        }
     }
 
     for rel in current_paths {
