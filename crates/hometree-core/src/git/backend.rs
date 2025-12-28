@@ -130,6 +130,10 @@ pub trait GitBackend {
     ) -> GitResult<String>;
 
     fn pull(&self, git_dir: &Path, work_tree: &Path, remote: &str) -> GitResult<String>;
+
+    /// Reset the index to match a given revision without touching the work tree.
+    /// Equivalent to `git reset <rev>` (mixed reset).
+    fn reset(&self, git_dir: &Path, work_tree: &Path, rev: &str) -> GitResult<()>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -390,6 +390,11 @@ impl GitBackend for GitCliBackend {
     fn pull(&self, git_dir: &Path, work_tree: &Path, remote: &str) -> GitResult<String> {
         self.run_command(git_dir, work_tree, &["pull", remote])
     }
+
+    fn reset(&self, git_dir: &Path, work_tree: &Path, rev: &str) -> GitResult<()> {
+        self.run_command(git_dir, work_tree, &["reset", rev])?;
+        Ok(())
+    }
 }
 
 impl GitCliBackend {

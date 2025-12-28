@@ -725,6 +725,10 @@ mod tests {
         fn pull(&self, _git_dir: &Path, _work_tree: &Path, _remote: &str) -> Result<String> {
             unimplemented!()
         }
+
+        fn reset(&self, _git_dir: &Path, _work_tree: &Path, _rev: &str) -> Result<()> {
+            unimplemented!()
+        }
     }
 
     #[test]
