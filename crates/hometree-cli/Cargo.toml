@@ -21,6 +21,7 @@ serde = { version = "1", features = ["derive"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 signal-hook = "0.3"
 fs2 = "0.4"
+walkdir = "2"
 
 [lib]
 path = "src/lib.rs"

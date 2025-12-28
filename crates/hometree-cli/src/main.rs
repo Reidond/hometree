@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
+use walkdir::WalkDir;
 use clap::{Parser, Subcommand, ValueEnum};
 use hometree_cli::track::decide_track;
 use hometree_cli::watch::root_to_pathspec;
@@ -149,6 +150,11 @@ enum Commands {
         #[arg(long)]
         no_deploy: bool,
     },
+    /// Manage pre-deploy backups
+    Backup {
+        #[command(subcommand)]
+        command: BackupCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -229,6 +235,21 @@ enum RemoteCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum BackupCommand {
+    /// List available backups
+    List,
+    /// Restore files from a backup
+    Restore {
+        /// Backup timestamp (use 'list' to see available backups, or 'latest')
+        #[arg(required = true)]
+        timestamp: String,
+        /// Don't create a backup of current state before restoring
+        #[arg(long)]
+        no_backup: bool,
+    },
+}
+
 fn main() -> Result<()> {
     init_tracing();
     let Cli {
@@ -268,6 +289,7 @@ fn main() -> Result<()> {
         Commands::Secret { command } => run_secret(&overrides, command),
         Commands::Remote { command } => run_remote(&overrides, command),
         Commands::Sync { remote, no_deploy } => run_sync(&overrides, remote, no_deploy),
+        Commands::Backup { command } => run_backup(&overrides, command),
     }
 }
 
@@ -335,6 +357,9 @@ fn run_init(overrides: &Overrides, from: Option<String>, auto_deploy: bool) -> R
         }
         clone_bare_repo(&url, &repo_dir).context("clone bare repo")?;
         info!(path = %repo_dir.display(), "cloned bare repo from {}", url);
+
+        git.reset(&repo_dir, paths.home_dir(), "HEAD")
+            .context("sync index with HEAD after clone")?;
 
         let config_path = paths.config_file();
         if !config_path.exists() {
@@ -1216,6 +1241,117 @@ fn run_sync(overrides: &Overrides, remote: String, no_deploy: bool) -> Result<()
     )
     .context("deploy")?;
     println!("synced to {}", entry.rev);
+    Ok(())
+}
+
+fn run_backup(overrides: &Overrides, command: BackupCommand) -> Result<()> {
+    let paths = load_paths(overrides)?;
+    let backups_dir = paths.state_dir().join("backups");
+
+    match command {
+        BackupCommand::List => {
+            if !backups_dir.exists() {
+                println!("No backups found.");
+                return Ok(());
+            }
+
+            let mut entries: Vec<_> = std::fs::read_dir(&backups_dir)
+                .context("read backups directory")?
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                .collect();
+
+            if entries.is_empty() {
+                println!("No backups found.");
+                return Ok(());
+            }
+
+            entries.sort_by_key(|e| e.file_name());
+            entries.reverse();
+
+            println!("Available backups (newest first):");
+            for entry in entries {
+                let name = entry.file_name();
+                let ts_str = name.to_string_lossy();
+                if let Ok(ts) = ts_str.parse::<u64>() {
+                    let dt = time::OffsetDateTime::from_unix_timestamp(ts as i64)
+                        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
+                    let format = time::format_description::parse(
+                        "[year]-[month]-[day] [hour]:[minute]:[second]",
+                    )
+                    .unwrap();
+                    let formatted = dt.format(&format).unwrap_or_else(|_| ts_str.to_string());
+                    println!("  {} ({})", ts_str, formatted);
+                } else {
+                    println!("  {}", ts_str);
+                }
+            }
+        }
+        BackupCommand::Restore { timestamp, no_backup } => {
+            let backup_dir = if timestamp == "latest" {
+                if !backups_dir.exists() {
+                    return Err(anyhow!("no backups found"));
+                }
+                let mut entries: Vec<_> = std::fs::read_dir(&backups_dir)
+                    .context("read backups directory")?
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                    .collect();
+                if entries.is_empty() {
+                    return Err(anyhow!("no backups found"));
+                }
+                entries.sort_by_key(|e| e.file_name());
+                entries.pop().unwrap().path()
+            } else {
+                let dir = backups_dir.join(&timestamp);
+                if !dir.exists() {
+                    return Err(anyhow!("backup '{}' not found", timestamp));
+                }
+                dir
+            };
+
+            if !no_backup {
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let pre_restore_backup = backups_dir.join(format!("{}-pre-restore", ts));
+                std::fs::create_dir_all(&pre_restore_backup)?;
+
+                for entry in WalkDir::new(&backup_dir).into_iter().flatten() {
+                    if entry.file_type().is_dir() {
+                        continue;
+                    }
+                    let rel = entry.path().strip_prefix(&backup_dir)?;
+                    let current = paths.home_dir().join(rel);
+                    if current.exists() {
+                        let dest = pre_restore_backup.join(rel);
+                        if let Some(parent) = dest.parent() {
+                            std::fs::create_dir_all(parent)?;
+                        }
+                        std::fs::copy(&current, &dest)?;
+                    }
+                }
+                println!("backed up current state to {}", pre_restore_backup.display());
+            }
+
+            let mut count = 0;
+            for entry in WalkDir::new(&backup_dir).into_iter().flatten() {
+                if entry.file_type().is_dir() {
+                    continue;
+                }
+                let rel = entry.path().strip_prefix(&backup_dir)?;
+                let dest = paths.home_dir().join(rel);
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(entry.path(), &dest)?;
+                count += 1;
+            }
+            println!("restored {} files from {}", count, backup_dir.display());
+        }
+    }
+
     Ok(())
 }
 
