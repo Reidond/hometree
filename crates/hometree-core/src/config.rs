@@ -143,9 +143,22 @@ impl Config {
     pub fn load_from(path: &Path) -> Result<Self> {
         let contents = fs::read_to_string(path)?;
         let mut config: Self = toml::from_str(&contents)?;
+        config.canonicalize_paths();
         config.apply_secrets_defaults();
         config.validate()?;
         Ok(config)
+    }
+
+    /// Canonicalize repo paths for immutable system compatibility.
+    /// On systems like Silverblue, /home is a symlink to /var/home.
+    /// This ensures paths work regardless of which form was saved in config.
+    fn canonicalize_paths(&mut self) {
+        if let Ok(canonical) = self.repo.git_dir.canonicalize() {
+            self.repo.git_dir = canonical;
+        }
+        if let Ok(canonical) = self.repo.work_tree.canonicalize() {
+            self.repo.work_tree = canonical;
+        }
     }
 
     fn validate(&self) -> Result<()> {

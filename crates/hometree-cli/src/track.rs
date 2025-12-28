@@ -60,7 +60,7 @@ mod tests {
         let mut cfg = Config::default_with_paths(&paths);
         cfg.manage.paths = vec![".config/".to_string(), ".zshrc".to_string()];
         cfg.ignore.patterns = vec![".config/ignored/**".to_string(), ".ssh/**".to_string()];
-        let managed = ManagedSet::from_config(&cfg).expect("managed");
+        let managed = ManagedSet::from_config(&cfg, paths.home_dir()).expect("managed");
         (managed, paths.home_dir().to_path_buf())
     }
 

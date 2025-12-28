@@ -42,7 +42,7 @@ pub fn deploy_with_options(
     options: DeployOptions,
 ) -> Result<GenerationEntry> {
     let _lock = acquire_lock(paths)?;
-    let managed = ManagedSet::from_config(config)?;
+    let managed = ManagedSet::from_config(config, paths.home_dir())?;
     let secrets = SecretsManager::from_config(&config.secrets);
     let secrets_ref = if secrets.enabled() {
         Some(&secrets)
@@ -150,10 +150,11 @@ pub(crate) fn collect_target_paths(
     let entries = git.ls_tree_detailed(git_dir, work_tree, rev)?;
     for entry in entries {
         let rel = PathBuf::from(&entry.path);
+        let is_managed = managed.is_managed(&rel);
         let is_secret_cipher = secrets
             .map(|secrets| secrets.is_ciphertext_rule_path(&rel))
             .unwrap_or(false);
-        if managed.is_managed(&rel) || is_secret_cipher {
+        if is_managed || is_secret_cipher {
             map.insert(rel, entry);
         }
     }
@@ -181,7 +182,7 @@ pub(crate) fn collect_current_paths(
             continue;
         }
 
-        if is_directory_path(path) {
+        if is_directory_path(path, Some(home_dir)) {
             for entry in WalkDir::new(&abs)
                 .follow_links(false)
                 .into_iter()
@@ -811,7 +812,7 @@ mod tests {
         let mut config = Config::default_with_paths(&paths);
         config.manage.paths = vec![".config/".to_string(), ".zshrc".to_string()];
         config.ignore.patterns = vec![".config/ignored/**".to_string()];
-        let managed = ManagedSet::from_config(&config).expect("managed");
+        let managed = ManagedSet::from_config(&config, home).expect("managed");
 
         let current =
             collect_current_paths(&managed, None, home, &config.manage.paths).expect("collect");

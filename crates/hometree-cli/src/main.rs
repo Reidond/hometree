@@ -427,8 +427,8 @@ fn run_init(overrides: &Overrides, from: Option<String>, auto_deploy: bool) -> R
 }
 
 fn run_status(overrides: &Overrides) -> Result<()> {
-    let (_paths, config) = load_config(overrides)?;
-    let managed = ManagedSet::from_config(&config).context("build managed set")?;
+    let (paths, config) = load_config(overrides)?;
+    let managed = ManagedSet::from_config(&config, paths.home_dir()).context("build managed set")?;
     let secrets = SecretsManager::from_config(&config.secrets);
     let git = GitCliBackend::new();
     let paths = status_paths(&config);
@@ -467,7 +467,7 @@ fn run_status(overrides: &Overrides) -> Result<()> {
 
 fn run_track(overrides: &Overrides, paths: Vec<PathBuf>, force: bool) -> Result<()> {
     let (paths_ctx, mut config) = load_config(overrides)?;
-    let managed = ManagedSet::from_config(&config).context("build managed set")?;
+    let managed = ManagedSet::from_config(&config, paths_ctx.home_dir()).context("build managed set")?;
     let home_dir = paths_ctx.home_dir();
     let secrets = SecretsManager::from_config(&config.secrets);
 
@@ -520,7 +520,7 @@ fn run_track(overrides: &Overrides, paths: Vec<PathBuf>, force: bool) -> Result<
 
 fn run_untrack(overrides: &Overrides, paths: Vec<PathBuf>) -> Result<()> {
     let (paths_ctx, mut config) = load_config(overrides)?;
-    let managed = ManagedSet::from_config(&config).context("build managed set")?;
+    let managed = ManagedSet::from_config(&config, paths_ctx.home_dir()).context("build managed set")?;
     let secrets = SecretsManager::from_config(&config.secrets);
     let home_dir = paths_ctx.home_dir();
     let mut changed = false;

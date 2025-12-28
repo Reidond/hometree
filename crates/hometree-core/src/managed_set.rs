@@ -10,8 +10,8 @@ pub struct ManagedSet {
 }
 
 impl ManagedSet {
-    pub fn from_config(config: &Config) -> Result<Self, globset::Error> {
-        let normalized = normalize_paths(&config.manage.paths);
+    pub fn from_config(config: &Config, home_dir: &Path) -> Result<Self, globset::Error> {
+        let normalized = normalize_paths(&config.manage.paths, Some(home_dir));
         let ignore_patterns = config.ignore.patterns.clone();
         let denylist_patterns = Vec::new();
 
@@ -66,11 +66,14 @@ where
     builder.build()
 }
 
-pub fn normalize_paths(paths: &[String]) -> Vec<String> {
-    paths.iter().map(|p| normalize_path(p)).collect()
+pub fn normalize_paths(paths: &[String], home_dir: Option<&Path>) -> Vec<String> {
+    paths
+        .iter()
+        .map(|p| normalize_path(p, home_dir))
+        .collect()
 }
 
-pub fn normalize_path(path: &str) -> String {
+pub fn normalize_path(path: &str, home_dir: Option<&Path>) -> String {
     let trimmed = path.trim_start_matches("./");
     if has_glob_meta(trimmed) {
         return trimmed.to_string();
@@ -78,22 +81,27 @@ pub fn normalize_path(path: &str) -> String {
     if trimmed.ends_with("/**") {
         return trimmed.to_string();
     }
-    if is_directory_path(trimmed) {
+    if is_directory_path(trimmed, home_dir) {
         let base = trimmed.trim_end_matches('/');
         return format!("{base}/**");
     }
     trimmed.to_string()
 }
 
-pub fn is_directory_path(path: &str) -> bool {
+pub fn is_directory_path(path: &str, home_dir: Option<&Path>) -> bool {
     if path.ends_with('/') {
         return true;
     }
-    if let Some(last) = path.rsplit('/').next() {
-        !last.contains('.')
-    } else {
-        !path.contains('.')
+
+    if let Some(home) = home_dir {
+        let trimmed = path.trim_end_matches('/');
+        let full_path = home.join(trimmed);
+        if let Ok(metadata) = std::fs::metadata(&full_path) {
+            return metadata.is_dir();
+        }
     }
+
+    false
 }
 
 fn has_glob_meta(pattern: &str) -> bool {
@@ -104,10 +112,11 @@ fn has_glob_meta(pattern: &str) -> bool {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use tempfile::TempDir;
 
     #[test]
     fn test_managed_set_creation() {
-        let paths = normalize_paths(&["foo/".to_string(), "bar/baz.txt".to_string()]);
+        let paths = normalize_paths(&["foo/".to_string(), "bar/baz.txt".to_string()], None);
         let managed_set = ManagedSet::new(
             paths,
             vec!["foo/ignore.txt".to_string()],
@@ -124,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_config_ignore_patterns_apply() {
-        let paths = normalize_paths(&[".config/".to_string()]);
+        let paths = normalize_paths(&[".config/".to_string()], None);
         let managed_set = ManagedSet::new(
             paths,
             vec![
@@ -142,7 +151,7 @@ mod tests {
 
     #[test]
     fn test_ignore_overrides_path() {
-        let paths = normalize_paths(&["my_project/".to_string()]);
+        let paths = normalize_paths(&["my_project/".to_string()], None);
         let managed_set = ManagedSet::new(
             paths,
             vec!["my_project/ignored_dir/**".to_string()],
@@ -156,10 +165,13 @@ mod tests {
 
     #[test]
     fn test_denylist_overrides_all() {
-        let paths = normalize_paths(&[
-            "my_project/".to_string(),
-            "my_project/important_file.txt".to_string(),
-        ]);
+        let paths = normalize_paths(
+            &[
+                "my_project/".to_string(),
+                "my_project/important_file.txt".to_string(),
+            ],
+            None,
+        );
         let managed_set =
             ManagedSet::new(paths, Vec::<String>::new(), vec!["**/*.secret".to_string()]).unwrap();
 
@@ -171,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_file_path() {
-        let paths = normalize_paths(&[".zshrc".to_string()]);
+        let paths = normalize_paths(&[".zshrc".to_string()], None);
         let managed_set =
             ManagedSet::new(paths, Vec::<String>::new(), Vec::<String>::new()).unwrap();
 
@@ -180,27 +192,57 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_path_detection() {
-        assert_eq!(normalize_path(".config/"), ".config/**");
-        assert_eq!(normalize_path(".local/bin"), ".local/bin/**");
-        assert_eq!(normalize_path(".zshrc"), ".zshrc");
-        assert_eq!(normalize_path(".bashrc"), ".bashrc");
-        assert_eq!(normalize_path("scripts/deploy.sh"), "scripts/deploy.sh");
+    fn test_normalize_path_without_filesystem() {
+        assert_eq!(normalize_path(".config/", None), ".config/**");
+        assert_eq!(normalize_path(".local/bin/", None), ".local/bin/**");
+        assert_eq!(normalize_path(".zshrc", None), ".zshrc");
+        assert_eq!(normalize_path(".bashrc", None), ".bashrc");
+        assert_eq!(normalize_path("scripts/deploy.sh", None), "scripts/deploy.sh");
         assert_eq!(
-            normalize_path(".config/app/config.toml"),
+            normalize_path(".config/app/config.toml", None),
             ".config/app/config.toml"
         );
-        assert_eq!(normalize_path("**/*.txt"), "**/*.txt");
+        assert_eq!(normalize_path("**/*.txt", None), "**/*.txt");
+        assert_eq!(normalize_path(".config/ghostty/config", None), ".config/ghostty/config");
+    }
+
+    #[test]
+    fn test_normalize_path_with_filesystem() {
+        let temp = TempDir::new().expect("temp");
+        let home = temp.path();
+
+        std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+        std::fs::write(home.join(".config"), "file content").unwrap();
+
+        assert_eq!(normalize_path(".local/bin", Some(home)), ".local/bin/**");
+        assert_eq!(normalize_path(".config", Some(home)), ".config");
+        assert_eq!(normalize_path(".nonexistent", Some(home)), ".nonexistent");
     }
 
     #[test]
     fn test_directory_in_paths_matches_contents() {
-        let paths = normalize_paths(&[".local/bin".to_string()]);
+        let paths = normalize_paths(&[".local/bin/".to_string()], None);
         let managed_set =
             ManagedSet::new(paths, Vec::<String>::new(), Vec::<String>::new()).unwrap();
 
         assert!(managed_set.is_managed(&PathBuf::from(".local/bin/myscript")));
         assert!(managed_set.is_managed(&PathBuf::from(".local/bin/subdir/tool")));
         assert!(!managed_set.is_managed(&PathBuf::from(".local/share/other")));
+    }
+
+    #[test]
+    fn test_extensionless_file_not_treated_as_directory() {
+        let temp = TempDir::new().expect("temp");
+        let home = temp.path();
+
+        std::fs::create_dir_all(home.join(".config/ghostty")).unwrap();
+        std::fs::write(home.join(".config/ghostty/config"), "file content").unwrap();
+
+        let paths = normalize_paths(&[".config/ghostty/config".to_string()], Some(home));
+        let managed_set =
+            ManagedSet::new(paths, Vec::<String>::new(), Vec::<String>::new()).unwrap();
+
+        assert!(managed_set.is_managed(&PathBuf::from(".config/ghostty/config")));
+        assert!(!managed_set.is_managed(&PathBuf::from(".config/ghostty/config/subfile")));
     }
 }

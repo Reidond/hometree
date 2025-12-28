@@ -19,6 +19,7 @@ impl GitCliBackend {
 
     fn run_command(&self, git_dir: &Path, work_tree: &Path, args: &[&str]) -> GitResult<String> {
         let output = Command::new("git")
+            .current_dir(work_tree)
             .args(["--git-dir", git_dir.to_string_lossy().as_ref()])
             .args(["--work-tree", work_tree.to_string_lossy().as_ref()])
             .args(args)
@@ -39,15 +40,29 @@ impl GitCliBackend {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
-    fn run_command_bytes(
-        &self,
-        git_dir: &Path,
-        work_tree: &Path,
-        args: &[&str],
-    ) -> GitResult<Vec<u8>> {
+    fn run_command_bare(&self, git_dir: &Path, args: &[&str]) -> GitResult<String> {
         let output = Command::new("git")
             .args(["--git-dir", git_dir.to_string_lossy().as_ref()])
-            .args(["--work-tree", work_tree.to_string_lossy().as_ref()])
+            .args(args)
+            .output()?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let msg = if stderr.trim().is_empty() && !stdout.trim().is_empty() {
+                stdout.to_string()
+            } else {
+                stderr.to_string()
+            };
+            return Err(GitError::CommandFailed(msg));
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    fn run_command_bare_bytes(&self, git_dir: &Path, args: &[&str]) -> GitResult<Vec<u8>> {
+        let output = Command::new("git")
+            .args(["--git-dir", git_dir.to_string_lossy().as_ref()])
             .args(args)
             .output()?;
 
@@ -255,17 +270,13 @@ impl GitBackend for GitCliBackend {
         parse_detailed_log(&output)
     }
 
-    fn rev_parse(&self, git_dir: &Path, work_tree: &Path, rev: &str) -> GitResult<String> {
-        let output = self.run_command(git_dir, work_tree, &["rev-parse", rev])?;
+    fn rev_parse(&self, git_dir: &Path, _work_tree: &Path, rev: &str) -> GitResult<String> {
+        let output = self.run_command_bare(git_dir, &["rev-parse", rev])?;
         Ok(output.trim().to_string())
     }
 
-    fn ls_tree(&self, git_dir: &Path, work_tree: &Path, rev: &str) -> GitResult<Vec<String>> {
-        let output = self.run_command(
-            git_dir,
-            work_tree,
-            &["ls-tree", "-r", "--name-only", "-z", rev],
-        )?;
+    fn ls_tree(&self, git_dir: &Path, _work_tree: &Path, rev: &str) -> GitResult<Vec<String>> {
+        let output = self.run_command_bare(git_dir, &["ls-tree", "-r", "--name-only", "-z", rev])?;
         let mut paths = Vec::new();
         for part in output.split('\0') {
             if !part.is_empty() {
@@ -278,10 +289,10 @@ impl GitBackend for GitCliBackend {
     fn ls_tree_detailed(
         &self,
         git_dir: &Path,
-        work_tree: &Path,
+        _work_tree: &Path,
         rev: &str,
     ) -> GitResult<Vec<TreeEntry>> {
-        let output = self.run_command(git_dir, work_tree, &["ls-tree", "-r", "-z", rev])?;
+        let output = self.run_command_bare(git_dir, &["ls-tree", "-r", "-z", rev])?;
         let mut entries = Vec::new();
         for part in output.split('\0') {
             if part.is_empty() {
@@ -306,12 +317,12 @@ impl GitBackend for GitCliBackend {
     fn show_blob(
         &self,
         git_dir: &Path,
-        work_tree: &Path,
+        _work_tree: &Path,
         rev: &str,
         path: &Path,
     ) -> GitResult<Vec<u8>> {
         let spec = format!("{}:{}", rev, path.to_string_lossy());
-        self.run_command_bytes(git_dir, work_tree, &["show", &spec])
+        self.run_command_bare_bytes(git_dir, &["show", &spec])
     }
 
     fn config_set(
@@ -330,8 +341,8 @@ impl GitBackend for GitCliBackend {
         Ok(())
     }
 
-    fn get_commit_info(&self, git_dir: &Path, work_tree: &Path, rev: &str) -> GitResult<String> {
-        self.run_command(git_dir, work_tree, &["log", "-1", "--oneline", rev])
+    fn get_commit_info(&self, git_dir: &Path, _work_tree: &Path, rev: &str) -> GitResult<String> {
+        self.run_command_bare(git_dir, &["log", "-1", "--oneline", rev])
     }
 
     fn remote_add(&self, git_dir: &Path, work_tree: &Path, name: &str, url: &str) -> GitResult<()> {

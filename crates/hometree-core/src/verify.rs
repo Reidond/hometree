@@ -61,7 +61,7 @@ pub fn verify(
     rev: &str,
     options: VerifyOptions,
 ) -> Result<VerifyReport> {
-    let managed = ManagedSet::from_config(config)?;
+    let managed = ManagedSet::from_config(config, paths.home_dir())?;
     let resolved = git.rev_parse(&config.repo.git_dir, &config.repo.work_tree, rev)?;
     let secrets = SecretsManager::from_config(&config.secrets);
     let secrets_ref = if secrets.enabled() {

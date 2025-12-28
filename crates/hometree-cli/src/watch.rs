@@ -185,7 +185,7 @@ mod tests {
             ciphertext: None,
             mode: None,
         });
-        let managed = ManagedSet::from_config(&config).expect("managed");
+        let managed = ManagedSet::from_config(&config, paths.home_dir()).expect("managed");
         let secrets = SecretsManager::from_config(&config.secrets);
         let allowlist = build_allowlist(&vec![".config/**".to_string()]).expect("allowlist");
 
@@ -250,7 +250,7 @@ mod tests {
             ciphertext: None,
             mode: None,
         });
-        let managed = ManagedSet::from_config(&config).expect("managed");
+        let managed = ManagedSet::from_config(&config, paths.home_dir()).expect("managed");
         let secrets = SecretsManager::from_config(&config.secrets);
         let allowlist = build_allowlist(&vec![".config/**".to_string()]).expect("allowlist");
 
