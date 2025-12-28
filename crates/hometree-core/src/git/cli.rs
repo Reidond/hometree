@@ -276,7 +276,8 @@ impl GitBackend for GitCliBackend {
     }
 
     fn ls_tree(&self, git_dir: &Path, _work_tree: &Path, rev: &str) -> GitResult<Vec<String>> {
-        let output = self.run_command_bare(git_dir, &["ls-tree", "-r", "--name-only", "-z", rev])?;
+        let output =
+            self.run_command_bare(git_dir, &["ls-tree", "-r", "--name-only", "-z", rev])?;
         let mut paths = Vec::new();
         for part in output.split('\0') {
             if !part.is_empty() {

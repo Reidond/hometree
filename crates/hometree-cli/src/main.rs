@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
-use walkdir::WalkDir;
 use clap::{Parser, Subcommand, ValueEnum};
 use hometree_cli::track::decide_track;
 use hometree_cli::watch::root_to_pathspec;
@@ -15,6 +14,7 @@ use hometree_core::{
 use std::time::Duration;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
+use walkdir::WalkDir;
 
 mod daemon;
 
@@ -428,7 +428,8 @@ fn run_init(overrides: &Overrides, from: Option<String>, auto_deploy: bool) -> R
 
 fn run_status(overrides: &Overrides) -> Result<()> {
     let (paths, config) = load_config(overrides)?;
-    let managed = ManagedSet::from_config(&config, paths.home_dir()).context("build managed set")?;
+    let managed =
+        ManagedSet::from_config(&config, paths.home_dir()).context("build managed set")?;
     let secrets = SecretsManager::from_config(&config.secrets);
     let git = GitCliBackend::new();
     let paths = status_paths(&config);
@@ -467,7 +468,8 @@ fn run_status(overrides: &Overrides) -> Result<()> {
 
 fn run_track(overrides: &Overrides, paths: Vec<PathBuf>, force: bool) -> Result<()> {
     let (paths_ctx, mut config) = load_config(overrides)?;
-    let managed = ManagedSet::from_config(&config, paths_ctx.home_dir()).context("build managed set")?;
+    let managed =
+        ManagedSet::from_config(&config, paths_ctx.home_dir()).context("build managed set")?;
     let home_dir = paths_ctx.home_dir();
     let secrets = SecretsManager::from_config(&config.secrets);
 
@@ -520,7 +522,8 @@ fn run_track(overrides: &Overrides, paths: Vec<PathBuf>, force: bool) -> Result<
 
 fn run_untrack(overrides: &Overrides, paths: Vec<PathBuf>) -> Result<()> {
     let (paths_ctx, mut config) = load_config(overrides)?;
-    let managed = ManagedSet::from_config(&config, paths_ctx.home_dir()).context("build managed set")?;
+    let managed =
+        ManagedSet::from_config(&config, paths_ctx.home_dir()).context("build managed set")?;
     let secrets = SecretsManager::from_config(&config.secrets);
     let home_dir = paths_ctx.home_dir();
     let mut changed = false;
@@ -1287,7 +1290,10 @@ fn run_backup(overrides: &Overrides, command: BackupCommand) -> Result<()> {
                 }
             }
         }
-        BackupCommand::Restore { timestamp, no_backup } => {
+        BackupCommand::Restore {
+            timestamp,
+            no_backup,
+        } => {
             let backup_dir = if timestamp == "latest" {
                 if !backups_dir.exists() {
                     return Err(anyhow!("no backups found"));
@@ -1332,7 +1338,10 @@ fn run_backup(overrides: &Overrides, command: BackupCommand) -> Result<()> {
                         std::fs::copy(&current, &dest)?;
                     }
                 }
-                println!("backed up current state to {}", pre_restore_backup.display());
+                println!(
+                    "backed up current state to {}",
+                    pre_restore_backup.display()
+                );
             }
 
             let mut count = 0;

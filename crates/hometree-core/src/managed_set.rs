@@ -67,10 +67,7 @@ where
 }
 
 pub fn normalize_paths(paths: &[String], home_dir: Option<&Path>) -> Vec<String> {
-    paths
-        .iter()
-        .map(|p| normalize_path(p, home_dir))
-        .collect()
+    paths.iter().map(|p| normalize_path(p, home_dir)).collect()
 }
 
 pub fn normalize_path(path: &str, home_dir: Option<&Path>) -> String {
@@ -197,13 +194,19 @@ mod tests {
         assert_eq!(normalize_path(".local/bin/", None), ".local/bin/**");
         assert_eq!(normalize_path(".zshrc", None), ".zshrc");
         assert_eq!(normalize_path(".bashrc", None), ".bashrc");
-        assert_eq!(normalize_path("scripts/deploy.sh", None), "scripts/deploy.sh");
+        assert_eq!(
+            normalize_path("scripts/deploy.sh", None),
+            "scripts/deploy.sh"
+        );
         assert_eq!(
             normalize_path(".config/app/config.toml", None),
             ".config/app/config.toml"
         );
         assert_eq!(normalize_path("**/*.txt", None), "**/*.txt");
-        assert_eq!(normalize_path(".config/ghostty/config", None), ".config/ghostty/config");
+        assert_eq!(
+            normalize_path(".config/ghostty/config", None),
+            ".config/ghostty/config"
+        );
     }
 
     #[test]

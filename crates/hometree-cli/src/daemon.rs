@@ -909,7 +909,8 @@ impl DaemonContext {
         if !config.watch.enabled {
             return Err(anyhow!("watch is disabled in config"));
         }
-        let managed = ManagedSet::from_config(&config, paths.home_dir()).context("build managed set")?;
+        let managed =
+            ManagedSet::from_config(&config, paths.home_dir()).context("build managed set")?;
         let watch_roots = watch_paths(&config);
         if watch_roots.is_empty() {
             return Err(anyhow!("no managed roots or extra files configured"));
