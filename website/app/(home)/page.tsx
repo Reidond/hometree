@@ -15,7 +15,7 @@ export default function HomePage() {
   return (
     <main className="flex flex-col min-h-screen">
       <section className="relative px-6 pt-32 pb-24 text-center md:pt-48 md:pb-32 overflow-hidden">
-        <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-100/20 via-transparent to-transparent dark:from-blue-900/20 dark:via-transparent dark:to-transparent" />
+        <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-blue-100/20 via-transparent to-transparent dark:from-blue-900/20 dark:via-transparent dark:to-transparent" />
         
         <div className="max-w-4xl mx-auto space-y-8">
           <div className="inline-flex items-center px-3 py-1 rounded-full border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 text-sm text-neutral-600 dark:text-neutral-400 mb-4">
@@ -25,7 +25,7 @@ export default function HomePage() {
           
           <h1 className="text-5xl md:text-7xl font-bold tracking-tight text-neutral-900 dark:text-white">
             Manage your dotfiles <br className="hidden md:block" />
-            <span className="text-transparent bg-clip-text bg-gradient-to-br from-blue-600 to-violet-600 dark:from-blue-400 dark:to-violet-400">
+            <span className="text-transparent bg-clip-text bg-linear-to-br from-blue-600 to-violet-600 dark:from-blue-400 dark:to-violet-400">
               with confidence
             </span>
           </h1>
@@ -43,7 +43,7 @@ export default function HomePage() {
               Get Started <ArrowRight className="w-4 h-4" />
             </Link>
             <a 
-              href="https://github.com/hometree-dev/hometree" 
+              href="https://github.com/Reidond/hometree" 
               target="_blank"
               rel="noreferrer"
               className="px-8 py-3.5 rounded-full border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors flex items-center gap-2 text-neutral-700 dark:text-neutral-300 font-medium"
